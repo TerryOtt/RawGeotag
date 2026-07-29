@@ -1,0 +1,8 @@
+# Rust build output
+/target
+**/*.rs.bk
+
+# Cargo.lock is intentionally NOT ignored.
+# This crate is a binary, and Rust convention is to commit the lockfile for
+# binaries so builds are reproducible. (The "ignore Cargo.lock" advice applies
+# to libraries.)
