@@ -32,7 +32,7 @@ use walkdir::WalkDir;
 
 use crate::format::RawFormat;
 use crate::raw::Capture;
-use crate::track::{Fix, Track};
+use crate::track::{Fix, GapLimits, Lookup, Track};
 
 #[derive(Parser)]
 #[command(
@@ -41,7 +41,11 @@ use crate::track::{Fix, Track};
     about = "Geotag camera raw files from a GPX track by writing XMP sidecars",
     after_help = "Raw files are never modified. Existing sidecars are skipped unless --force \
                   is given, which overwrites them wholesale — discarding any develop settings \
-                  or keywords another tool stored there."
+                  or keywords another tool stored there.\n\n\
+                  A photo is only tagged when the two track points bracketing its capture time \
+                  are close in BOTH time and distance, and come from the same recording run. \
+                  A geotag that is wrong is worse than one that is missing, so anything the \
+                  track does not actually support is skipped and reported."
 )]
 struct Args {
     /// Parent directory, searched recursively
@@ -56,6 +60,14 @@ struct Args {
     /// Offset for files with no EXIF timezone, e.g. -0700, +0430
     #[arg(long, value_name = "±HHMM", allow_hyphen_values = true, value_parser = parse_utc_offset)]
     utc_offset: Option<FixedOffset>,
+
+    /// Refuse to interpolate across a hole longer than this many seconds
+    #[arg(long, value_name = "SECONDS", default_value_t = 60)]
+    max_gap: i64,
+
+    /// Refuse to interpolate across a hole wider than this many metres
+    #[arg(long, value_name = "METRES", default_value_t = 100.0)]
+    max_distance: f64,
 
     /// Overwrite existing sidecars instead of skipping them
     #[arg(long)]
@@ -217,6 +229,7 @@ fn run() -> Result<Outcome> {
     // ---- Report -------------------------------------------------------------
     let mut tagged = 0usize;
     let mut outside_track = 0usize;
+    let mut in_gap = 0usize;
     let mut sidecar_exists = 0usize;
     let mut details = Vec::new();
 
@@ -234,6 +247,10 @@ fn run() -> Result<Outcome> {
                     written.path,
                     "capture time is outside the track".to_string(),
                 ));
+            }
+            WrittenKind::InGap { description } => {
+                in_gap += 1;
+                warnings.push((written.path, description));
             }
             WrittenKind::SidecarExists => {
                 sidecar_exists += 1;
@@ -268,6 +285,7 @@ fn run() -> Result<Outcome> {
         scanned,
         tagged,
         outside_track,
+        in_gap,
         sidecar_exists,
         no_capture_time,
         failed,
@@ -348,6 +366,7 @@ struct Written {
 enum WrittenKind {
     Tagged { fix: Fix },
     OutsideTrack,
+    InGap { description: String },
     SidecarExists,
     Failed { error: String },
 }
@@ -361,8 +380,27 @@ fn write_one(photo: &Photo, track: &Track, args: &Args) -> Written {
 }
 
 fn write_sidecar(photo: &Photo, track: &Track, args: &Args) -> WrittenKind {
-    let Some(fix) = track.lookup(photo.ts) else {
-        return WrittenKind::OutsideTrack;
+    let limits = GapLimits {
+        max_seconds: args.max_gap,
+        max_metres: args.max_distance,
+    };
+
+    let fix = match track.lookup(photo.ts, limits) {
+        Lookup::Found(fix) => fix,
+        Lookup::OutsideTrack => return WrittenKind::OutsideTrack,
+        Lookup::InGap(gap) => {
+            let reason = if gap.across_segments {
+                " (different recording runs)".to_string()
+            } else {
+                String::new()
+            };
+            return WrittenKind::InGap {
+                description: format!(
+                    "falls in a track gap of {}s / {:.0} m{reason}",
+                    gap.seconds, gap.metres
+                ),
+            };
+        }
     };
 
     let sidecar = xmp::sidecar_path(&photo.path);
@@ -448,6 +486,7 @@ struct Summary<'a> {
     scanned: usize,
     tagged: usize,
     outside_track: usize,
+    in_gap: usize,
     sidecar_exists: usize,
     no_capture_time: usize,
     failed: usize,
@@ -457,12 +496,18 @@ struct Summary<'a> {
 }
 
 fn print_summary(summary: &Summary) {
-    let skipped =
-        summary.outside_track + summary.sidecar_exists + summary.no_capture_time + summary.failed;
+    let skipped = summary.outside_track
+        + summary.in_gap
+        + summary.sidecar_exists
+        + summary.no_capture_time
+        + summary.failed;
 
     let mut reasons = Vec::new();
     if summary.outside_track > 0 {
         reasons.push(format!("{} outside track", summary.outside_track));
+    }
+    if summary.in_gap > 0 {
+        reasons.push(format!("{} in track gap", summary.in_gap));
     }
     if summary.sidecar_exists > 0 {
         reasons.push(format!("{} existing sidecar", summary.sidecar_exists));
@@ -509,30 +554,11 @@ fn format_utc(ts: i64) -> String {
         .unwrap_or_else(|| format!("{ts} (unrepresentable)"))
 }
 
-/// Parse `±HHMM`, also tolerating `±HH:MM`.
-fn parse_utc_offset(raw: &str) -> Result<FixedOffset, String> {
-    let invalid = || format!("expected an offset like -0700 or +0430, got {raw:?}");
-
-    let (sign, rest) = match raw.strip_prefix('+') {
-        Some(rest) => (1, rest),
-        None => match raw.strip_prefix('-') {
-            Some(rest) => (-1, rest),
-            None => return Err(invalid()),
-        },
-    };
-
-    let digits: String = rest.chars().filter(|c| *c != ':').collect();
-    if digits.len() != 4 || !digits.chars().all(|c| c.is_ascii_digit()) {
-        return Err(invalid());
-    }
-
-    let hours: i32 = digits[..2].parse().map_err(|_| invalid())?;
-    let minutes: i32 = digits[2..].parse().map_err(|_| invalid())?;
-    if minutes > 59 {
-        return Err(invalid());
-    }
-
-    FixedOffset::east_opt(sign * (hours * 3600 + minutes * 60)).ok_or_else(invalid)
+/// Parse `±HHMM`, also tolerating `±HH:MM`. Shares its implementation with the
+/// EXIF-side offset parser so the two can never drift apart.
+fn parse_utc_offset(text: &str) -> Result<FixedOffset, String> {
+    raw::parse_offset(text)
+        .ok_or_else(|| format!("expected an offset like -0700 or +0430, got {text:?}"))
 }
 
 #[cfg(test)]

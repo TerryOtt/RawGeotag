@@ -16,6 +16,18 @@
 
 use nom_exif::ExifTag;
 
+/// A capture-time tag paired with the tag carrying its UTC offset.
+///
+/// EXIF stores the two separately, and nom-exif surfaces them that way rather than
+/// merging them, so the pairing has to be stated explicitly. The spec pairs
+/// `DateTimeOriginal` with `OffsetTimeOriginal` and `CreateDate` (a.k.a.
+/// `DateTimeDigitized`) with `OffsetTimeDigitized`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CaptureTag {
+    pub datetime: ExifTag,
+    pub offset: ExifTag,
+}
+
 /// A raw format we know how to read a capture time from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RawFormat {
@@ -34,9 +46,18 @@ impl RawFormat {
     }
 
     /// Capture-time tags to try, in priority order.
-    pub fn capture_tags(self) -> &'static [ExifTag] {
+    pub fn capture_tags(self) -> &'static [CaptureTag] {
         match self {
-            Self::Cr3 => &[ExifTag::DateTimeOriginal, ExifTag::CreateDate],
+            Self::Cr3 => &[
+                CaptureTag {
+                    datetime: ExifTag::DateTimeOriginal,
+                    offset: ExifTag::OffsetTimeOriginal,
+                },
+                CaptureTag {
+                    datetime: ExifTag::CreateDate,
+                    offset: ExifTag::OffsetTimeDigitized,
+                },
+            ],
         }
     }
 

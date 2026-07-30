@@ -178,9 +178,20 @@ let dt = format.capture_tags().iter()           // per-format priority order
     .find_map(|tag| exif.get(*tag));            // -> ExifDateTime
 ```
 
-`ExifDateTime` is an enum with exactly the two cases the timezone rule needs:
-- `Aware(DateTime<FixedOffset>)` — camera recorded `OffsetTimeOriginal`
+`ExifDateTime` is an enum with two cases:
+- `Aware(DateTime<FixedOffset>)` — the date string itself carried a zone
 - `Naive(NaiveDateTime)` — no zone information
+
+> **Correction, found while verifying against a real CR3 (2026-07-30).** The
+> assumption below — that `.aware()` is `Some` whenever the camera recorded
+> `OffsetTimeOriginal` — **is false for CR3**. nom-exif returns
+> `DateTimeOriginal` as `Naive` and exposes `OffsetTimeOriginal` as a *separate*
+> `Text("+00:00")` entry; it never merges the two. (It *does* merge them for
+> JPEG, which is why JPEG stand-in fixtures did not catch this — every one of
+> 1024 real CR3s tripped the gate.) The implementation therefore pairs each
+> capture tag with its offset tag in `format.rs` and reads both, preferring
+> `.aware()` when present and falling back to the paired offset tag. The
+> precedence rule stated here is unchanged; only the mechanism differs.
 
 Resolution rule (**EXIF wins, warn on conflict**):
 1. If `.aware()` is `Some` and `--utc-offset` was given and the two offsets differ → return a conflict warning naming the file and both offsets; proceed with the EXIF value.
@@ -201,7 +212,25 @@ Look up by `slice::binary_search_by_key(&ts, |p| p.ts)`:
 Interpolation details:
 - **Longitude must take the shortest arc.** If `(b.lon - a.lon).abs() > 180.0`, adjust by ±360 before interpolating and normalize the result back into −180..180. Cheap to write, and without it any track crossing the antimeridian produces a point on the wrong side of the planet.
 - **Altitude is interpolated only if both bracketing points have `ele`.** If either is `None`, omit `GPSAltitude` from the sidecar entirely rather than inventing a value.
-- No `--max-gap` limit, per the range decision — interpolation across a long recording gap is permitted.
+- ~~No `--max-gap` limit, per the range decision — interpolation across a long recording gap is permitted.~~
+
+> **Reversed 2026-07-30, by the project mantra "a geotag off by more than 5 m is
+> worse than no geotag."** Interpolation now requires the bracketing points to be
+> within **60 seconds AND 100 metres** of each other (`--max-gap`,
+> `--max-distance`), and to come from the **same `<trkseg>`**. Exceeding any one of
+> the three skips the photo and reports the gap.
+>
+> Both limits are needed, and neither implies the other. Endpoint separation does
+> not bound the interpolation error — a subject can leave and return between two
+> nearby fixes, so a 140 s hole with only 8 m of endpoint separation is still
+> untrustworthy, and only the time limit rejects it. Conversely a short hole with
+> large separation means genuine fast movement, and only the distance limit rejects
+> that. Segment breaks are structural: the logger stopped, so nothing at all is
+> known about the path between.
+>
+> Measured on the 2025-09-17 Malta shoot (1024 CR3s): 1002 tagged, 22 skipped —
+> 10 across a segment break (460 s / 594 m), 9 in a 140 s / 8 m hole, 3 in a
+> 775 s / 27 m hole.
 
 ## xmp.rs — sidecar
 
