@@ -1,0 +1,23 @@
+[package]
+name = "rawgeotag"
+version = "0.1.0"
+edition = "2021"
+description = "Geotag camera raw files from a GPX track by writing XMP sidecars"
+license = "MIT"
+
+[dependencies]
+anyhow = "1"
+chrono = "0.4"
+clap = { version = "4", features = ["derive"] }
+gpx = "0.10"
+indicatif = "0.17"
+nom-exif = "3.6"
+rayon = "1"
+time = "0.3"
+walkdir = "2"
+
+[profile.release]
+# The workload is many short-lived parallel tasks over a large file count;
+# whole-program optimisation is worth the slower build for a released binary.
+lto = "thin"
+codegen-units = 1

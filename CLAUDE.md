@@ -38,5 +38,30 @@ is wrong, say so explicitly rather than quietly diverging.
 
 ## Status
 
-Planning complete, implementation not started. The next session's job is to
-implement `docs/PLAN.md`, starting with `cargo init`.
+Implemented. Builds clean, 26 unit tests pass, `cargo clippy -- -D warnings` is
+clean. Toolchain on this machine: Rust 1.97.1 MSVC, with the VS Build Tools C++
+workload installed.
+
+Verified end-to-end against *synthesized* EXIF fixtures (JPEGs with EXIF written by
+ExifTool, renamed to `.cr3` — nom-exif dispatches on content, so the whole pipeline
+runs). ExifTool reads the resulting sidecars back correctly. Note ExifTool calls the
+XMP `exif:GPSTimeStamp` property **`GPSDateTime`**; asking it for `GPSTimeStamp` on a
+sidecar returns nothing, which is a naming difference, not a bug.
+
+**Still unverified: a real CR3.** Nothing has exercised nom-exif's actual BMFF/CR3
+path. That needs a genuine Canon raw plus its GPX track from the user.
+
+## Measured behaviour worth not rediscovering
+
+Reading parallelises ~3x and plateaus near 4 threads. Sidecar *writing* does not
+parallelise at all on NTFS — temp-create plus rename are two directory metadata
+operations per file and NTFS serialises those within a directory, so more threads
+add contention. This does not make the rayon design wrong: real CR3s are ~30 MB and
+cost far more to parse than the 184 KB fixtures used here, so the read phase should
+dominate on real input. Do not "fix" this by dropping the atomic write.
+
+One deviation from the plan, deliberately: a file with **no EXIF at all** returns
+`nom_exif::Error::ExifNotFound`, and `raw.rs` maps that to `Capture::NoCaptureTime`
+rather than letting it become a hard error. Otherwise two indistinguishable
+situations — no EXIF, versus EXIF without a date tag — would produce different exit
+codes.
