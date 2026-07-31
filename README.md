@@ -15,11 +15,20 @@ operation is reversible by deleting the generated `.xmp` files.
 **Implemented and building.** 37 unit tests pass; `cargo clippy -- -D warnings` is
 clean.
 
-Verified against 1024 real Canon EOS R5 CR3 files and their GPX track: 1002 tagged
-and 22 correctly refused as falling in track gaps. Interpolated positions agree with
-hand-computed values from the raw track points to within the coordinate encoding's
-resolution (~0.2 m). ExifTool is used as an independent oracle to read the sidecars
-back. See [`docs/PLAN.md`](docs/PLAN.md) for the full verification plan.
+Verified against two real Canon EOS R5 shoots and their GPX tracks:
+
+- **1024 CR3s** — 1002 tagged, 22 correctly refused as falling in track gaps.
+  Interpolated positions agree with hand-computed values from the raw track points
+  to within the coordinate encoding's resolution (~0.2 m).
+- **3883 CR3s, 188 GB** — 2394 tagged, 1489 refused (772 across `<trkseg>` breaks,
+  the rest in 5-to-60-minute dropouts). This body had its clock on `+01:00`, which
+  exercises the EXIF timezone path that a `+00:00` camera leaves as a no-op; spot
+  checks match the raw GPX exactly.
+
+Output is deterministic: the same input at `--jobs 1`, `2` and `16` produces
+byte-identical sidecars and an identical warning list. ExifTool is used throughout
+as an independent oracle to read the sidecars back and validate them. See
+[`docs/PLAN.md`](docs/PLAN.md) for the full verification plan.
 
 ## Build
 
@@ -31,7 +40,7 @@ cargo build --release
 cargo test
 ```
 
-The binary lands at `target/release/rawgeotag`.
+The binary lands at `target/release/rawgeotag` (`rawgeotag.exe` on Windows).
 
 ## Usage
 
@@ -122,5 +131,6 @@ delete the `.xmp` files between runs instead of using `--force`.
 
 - **Pure Rust.** No ExifTool, no C-library bindings. (ExifTool is used only as a
   verification oracle by hand; it appears nowhere in shipped code.)
-- **Fast.** The work is parallel by design; optimize for wall-clock time.
+- **Fast.** Optimize for wall-clock time. The work is parallel by design, but more
+  threads is not automatically faster — see Performance.
 - **Readable over clever.** No surprises for an experienced Rust reviewer.
