@@ -226,4 +226,82 @@ mod tests {
         );
         assert!(packet.contains(r#"exif:GPSAltitudeRef="1""#), "{packet}");
     }
+
+    // ---- atomic write -------------------------------------------------------
+
+    /// A scratch directory of its own, removed when the test ends.
+    ///
+    /// Tests run in parallel in one process, so the name has to distinguish
+    /// them from each other as well as from other runs.
+    struct ScratchDir(PathBuf);
+
+    impl ScratchDir {
+        fn new(test_name: &str) -> Self {
+            let dir = std::env::temp_dir()
+                .join(format!("rawgeotag-{}-{test_name}", std::process::id()));
+            let _ = fs::remove_dir_all(&dir);
+            fs::create_dir_all(&dir).expect("creating the scratch directory");
+            Self(dir)
+        }
+
+        fn join(&self, name: &str) -> PathBuf {
+            self.0.join(name)
+        }
+
+        fn entries(&self) -> Vec<String> {
+            let mut names: Vec<String> = fs::read_dir(&self.0)
+                .expect("reading the scratch directory")
+                .map(|entry| entry.expect("a directory entry").file_name())
+                .map(|name| name.to_string_lossy().into_owned())
+                .collect();
+            names.sort();
+            names
+        }
+    }
+
+    impl Drop for ScratchDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn write_atomic_lands_exactly_the_packet_and_leaves_no_temp_file() {
+        let dir = ScratchDir::new("write-new");
+        let target = dir.join("IMG_0001.xmp");
+
+        write_atomic(&target, "packet contents").expect("writing the sidecar");
+
+        assert_eq!(fs::read_to_string(&target).unwrap(), "packet contents");
+        // The temp file is an implementation detail, but a leftover one would be
+        // mistaken for a sidecar by anything globbing the directory.
+        assert_eq!(dir.entries(), vec!["IMG_0001.xmp".to_string()]);
+    }
+
+    #[test]
+    fn write_atomic_replaces_an_existing_sidecar_wholesale() {
+        let dir = ScratchDir::new("write-replace");
+        let target = dir.join("IMG_0002.xmp");
+
+        write_atomic(&target, "first").expect("writing the first sidecar");
+        write_atomic(&target, "second").expect("overwriting the sidecar");
+
+        // Wholesale replacement, not append or merge — --force discards whatever
+        // another tool had stored there, and that is the documented behavior.
+        assert_eq!(fs::read_to_string(&target).unwrap(), "second");
+        assert_eq!(dir.entries(), vec!["IMG_0002.xmp".to_string()]);
+    }
+
+    #[test]
+    fn write_atomic_reports_the_target_when_the_directory_is_missing() {
+        let dir = ScratchDir::new("write-missing");
+        let target = dir.join("no-such-subdir").join("IMG_0003.xmp");
+
+        let error = write_atomic(&target, "packet").expect_err("the directory does not exist");
+        let rendered = format!("{error:#}");
+        assert!(
+            rendered.contains("IMG_0003"),
+            "the error should name the file it failed on, got {rendered:?}"
+        );
+    }
 }

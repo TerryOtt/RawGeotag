@@ -173,16 +173,9 @@ fn run() -> Result<Outcome> {
     progress.finish_and_clear();
 
     // ---- Gate ---------------------------------------------------------------
-    let mut needs_offset: Vec<&Path> = extractions
-        .iter()
-        .filter_map(|extraction| match extraction {
-            Extraction::NeedsOffset { path } => Some(path.as_path()),
-            _ => None,
-        })
-        .collect();
+    let needs_offset = files_needing_offset(&extractions);
 
     if !needs_offset.is_empty() {
-        needs_offset.sort_unstable();
         eprintln!(
             "error: {} file(s) have a capture time with no timezone, and no --utc-offset was given:",
             needs_offset.len()
@@ -442,6 +435,24 @@ fn write_sidecar(photo: &Photo, track: &Track, args: &Args) -> WrittenKind {
     }
 }
 
+/// The files the gate must refuse the run over: a capture time with no zone and
+/// no `--utc-offset` to resolve it.
+///
+/// Returned sorted, because this list is printed and the run must read the same
+/// at any `--jobs`. Non-empty means no sidecar is written at all — guessing an
+/// offset would misplace every photo by that amount.
+fn files_needing_offset(extractions: &[Extraction]) -> Vec<&Path> {
+    let mut paths: Vec<&Path> = extractions
+        .iter()
+        .filter_map(|extraction| match extraction {
+            Extraction::NeedsOffset { path } => Some(path.as_path()),
+            _ => None,
+        })
+        .collect();
+    paths.sort_unstable();
+    paths
+}
+
 /// Walk the tree, collecting matching files.
 ///
 /// Materializing into a `Vec` before parallelizing gives rayon contiguous slices
@@ -597,6 +608,59 @@ mod tests {
         for bad in ["0700", "-7", "-07000", "-0760", "+abcd", ""] {
             assert!(parse_utc_offset(bad).is_err(), "{bad:?} should be rejected");
         }
+    }
+
+    fn needs_offset(path: &str) -> Extraction {
+        Extraction::NeedsOffset {
+            path: PathBuf::from(path),
+        }
+    }
+
+    #[test]
+    fn the_gate_stays_shut_when_every_file_resolved() {
+        let extractions = vec![
+            Extraction::Resolved {
+                path: PathBuf::from("/photos/a.cr3"),
+                ts: 1000,
+                conflict_warning: None,
+            },
+            Extraction::NoCaptureTime {
+                path: PathBuf::from("/photos/b.cr3"),
+            },
+            Extraction::Failed {
+                path: PathBuf::from("/photos/c.cr3"),
+                error: "unreadable".to_string(),
+            },
+        ];
+
+        // A missing capture time or a read failure is a per-file skip, not a
+        // reason to refuse the whole run. Only a missing timezone is.
+        assert!(files_needing_offset(&extractions).is_empty());
+    }
+
+    #[test]
+    fn the_gate_reports_every_zoneless_file_in_sorted_order() {
+        let extractions = vec![
+            needs_offset("/photos/c.cr3"),
+            Extraction::Resolved {
+                path: PathBuf::from("/photos/z.cr3"),
+                ts: 1000,
+                conflict_warning: None,
+            },
+            needs_offset("/photos/a.cr3"),
+            needs_offset("/photos/b.cr3"),
+        ];
+
+        // Sorted regardless of the order Phase A happened to finish in, so the
+        // report is identical at any --jobs.
+        assert_eq!(
+            files_needing_offset(&extractions),
+            vec![
+                Path::new("/photos/a.cr3"),
+                Path::new("/photos/b.cr3"),
+                Path::new("/photos/c.cr3"),
+            ]
+        );
     }
 
     #[test]
