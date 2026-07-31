@@ -63,9 +63,10 @@ pre-scan that validates timezones without doing the costly work, so the barrier
 cannot be moved earlier or made cheaper. The expensive pass and the gate are
 inherently the same pass.
 
-**What the barrier costs.** ~10% of wall clock: on the 1024-file Malta set, reads
-alone (`--dry-run`) are 3.0 s and read-plus-write is ~3.3 s. A fused single-pass
-design could overlap some writing with reading and recover a fraction of that — less
+**What the barrier costs.** The lost overlap between reading and writing, which is
+bounded by whichever phase is shorter — so it is ~10% over SMB (Malta: 3.0 s of reads
+against ~0.3 s of writes) and up to ~20% locally (Rockies: ~0.3 s of reads against
+~1.2 s of writes). A fused single-pass design could recover part of that, and less
 than it sounds, since sidecar writes do not parallelize on NTFS anyway (see *Measured
 behavior* below). Not a good trade against the guarantee.
 
@@ -118,15 +119,30 @@ Implemented. Builds clean, 37 unit tests pass, `cargo clippy -- -D warnings` is
 clean. Toolchain on this machine: Rust 1.97.1 MSVC, with the VS Build Tools C++
 workload installed.
 
-**Verified against real CR3s** (Canon EOS R5, `Q:\Lightroom\Images\2025\2025-09-17`,
-1024 files, with `Q:\Photo GPX Tracks\2025\...\2025-09-17- Malta Car Tour.gpx`): 1002
-resolve and tag, 3.3s over SMB. The other 22 are correctly skipped — they fall in a
-775 s / 27 m hole in the track, which the gap rule rejects on time even though the
-endpoints are close, exactly the case that rule exists for. Interpolation cross-checked
-by hand against the raw GPX points and agrees to within the coordinate encoding's
-resolution: `xmp.rs` writes ten-thousandths of a minute, and 0.0001 minute of latitude
-is ~0.19 m, so that is the floor on any agreement this check can demonstrate. ExifTool
-reads the sidecars back correctly and `-validate` is OK.
+**Verified against two real shoots.**
+
+*Malta* (Canon EOS R5, `Q:\Lightroom\Images\2025\2025-09-17`, 1024 files, with
+`Q:\Photo GPX Tracks\2025\...\2025-09-17- Malta Car Tour.gpx`): 1002 resolve and tag,
+~3.0 s over SMB. The 22 skips are **three distinct holes, not one** — 10 across a
+segment break (460 s / 594 m), 9 in a 140 s / 8 m hole, 3 in a 775 s / 27 m hole. The
+140 s / 8 m cluster is exactly what the two-limit rule exists for: 8 m clears the
+distance limit easily and only the time limit rejects it.
+
+*Canadian Rockies* (3883 files, 188 GB, local NVMe, with `2022-09-27- Peyto Lake, Bow
+Lake, Yoho.gpx`): 2394 tag, 1489 skip, 772 of those across `<trkseg>` breaks. This
+body's clock was on **`+01:00`**, so unlike Malta it actually exercises the EXIF offset
+conversion instead of a no-op. Spot-checked against the raw GPX on an exact-hit photo:
+longitude and altitude identical to the track point, latitude within ~2 mm.
+
+Interpolation agrees to within the coordinate encoding's resolution: `xmp.rs` writes
+ten-thousandths of a minute, and 0.0001 minute of latitude is ~0.19 m, so that is the
+floor on any agreement these checks can demonstrate. ExifTool reads the sidecars back
+correctly and `-validate` is OK.
+
+**Output is deterministic** — same input at `--jobs 1`, `2` and `16` produced
+byte-identical sidecars and identical warning lists over the 3883-file set. Re-run
+that check after any change to the phase structure, the outcome enums, or reporting
+order.
 
 Note ExifTool calls the XMP `exif:GPSTimeStamp` property **`GPSDateTime`**; asking it
 for `GPSTimeStamp` on a sidecar returns nothing, which is a naming difference, not a
@@ -135,7 +151,9 @@ bug.
 ## The CR3 timezone trap — do not regress this
 
 nom-exif returns CR3 `DateTimeOriginal` as **`Naive`** and exposes
-`OffsetTimeOriginal` as a **separate `Text("+00:00")` entry**. It never merges them.
+`OffsetTimeOriginal` as a **separate `Text` entry** (`"+00:00"` on the 2025 Malta
+files, `"+01:00"` on the 2022 Rockies ones — the offset is a per-trip camera setting,
+so never hardcode or assume it). It never merges them.
 It *does* merge them for JPEG. So `ExifDateTime::aware()` is always `None` on CR3,
 and any code that trusts `.aware()` alone will gate every single Canon raw as
 "no timezone" — which is exactly what happened on the first real-data run.
