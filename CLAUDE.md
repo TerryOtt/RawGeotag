@@ -134,20 +134,41 @@ is clean. (No count here on purpose — it went stale three times; `cargo test` 
 authoritative answer.) Toolchain on this machine: Rust 1.97.1 MSVC, with the VS Build Tools C++
 workload installed.
 
-**Verified against two real shoots.**
+**Verified against four real shoots**, all Canon EOS R5.
 
-*Malta* (Canon EOS R5, `Q:\Lightroom\Images\2025\2025-09-17`, 1024 files, with
-`Q:\Photo GPX Tracks\2025\...\2025-09-17- Malta Car Tour.gpx`): 1002 resolve and tag,
-~3.0 s over SMB. The 22 skips are **three distinct holes, not one** — 10 across a
-segment break (460 s / 594 m), 9 in a 140 s / 8 m hole, 3 in a 775 s / 27 m hole. The
-140 s / 8 m cluster is exactly what the two-limit rule exists for: 8 m clears the
-distance limit easily and only the time limit rejects it.
+*Malta 2025-09-17* (`Q:\Lightroom\Images\2025\2025-09-17`, 1024 files, with
+`2025-09-17 - Malta Car Tour.gpx`): 1002 resolve and tag, ~3.0 s over SMB. The 22 skips
+are **three distinct holes, not one** — 10 across a segment break (460 s / 594 m), 9 in
+a 140 s / 8 m hole, 3 in a 775 s / 27 m hole. The 140 s / 8 m cluster is exactly what
+the two-limit rule exists for: 8 m clears the distance limit easily and only the time
+limit rejects it.
 
-*Canadian Rockies* (3883 files, 188 GB, local NVMe, with `2022-09-27- Peyto Lake, Bow
-Lake, Yoho.gpx`): 2394 tag, 1489 skip, 772 of those across `<trkseg>` breaks. This
-body's clock was on **`+01:00`**, so unlike Malta it actually exercises the EXIF offset
-conversion instead of a no-op. Spot-checked against the raw GPX on an exact-hit photo:
-longitude and altitude identical to the track point, latitude within ~2 mm.
+*Canadian Rockies 2022-09-27* (3883 files, 188 GB, local NVMe, with `2022-09-27- Peyto
+Lake, Bow Lake, Yoho.gpx`): 2394 tag, 1489 skip, 772 of those across `<trkseg>` breaks.
+This body's clock was on **`+01:00`**, so unlike the 2025 trips it actually exercises
+the EXIF offset conversion instead of a no-op. Spot-checked against the raw GPX on an
+exact-hit photo: longitude and altitude identical to the track point.
+
+*Jackson WY 2025-11-24* (726 files, SMB, `-j 16`): **726 of 726 tagged, nothing
+skipped** — the cleanest run so far. The shoot (17:40–19:43 Z) sat wholly inside the
+track (17:11–21:57 Z) with no dropout large enough to trip the gap rule. Position
+matched the raw track point exactly.
+
+*Malta/Sorrento multi-track, 2025-09* — the first real exercise of **multiple GPX
+files**. All seven tracks in `Q:\Photo GPX Tracks\2025\2025-09 - Malta, Sorrento` were
+passed to each of the four photo folders that exist (`09-17/18/19/21`), writing 1967
+new sidecars: 95/95, 297/297, 1575/1689, and 09-17 already done. Passing every track to
+every folder is the safe idiom here — the tracks are disjoint in time, so each photo
+matches whichever one covers it and **nothing depends on pairing a filename to a folder
+name**. The 114 skips on 09-21 were 108 across a 2122 s / 844 m segment break and 6 in
+a 100 s / 189 m hole. Six sidecars spot-checked against the raw GPX agreed to **under
+0.11 m**, all exact-timestamp hits (the logger samples at 1 Hz, so most photos land on
+a recorded point and are never interpolated at all).
+
+Beware that GPX filenames can lie about their own date: `2025-09-21 - Amalfi Coast
+Drive.gpx` held data from 09-24 and was renamed to `2025-09-24 - Sorrento to Rome
+Drive.gpx`. Read the span, never the name — `rawgeotag --verbose --dry-run <empty-dir>
+cr3 <gpx>` prints it and exits before touching any photo.
 
 Interpolation agrees to within the coordinate encoding's resolution: `xmp.rs` writes
 ten-thousandths of a minute, and 0.0001 minute of latitude is ~0.19 m, so that is the
