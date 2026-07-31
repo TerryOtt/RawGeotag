@@ -79,9 +79,10 @@ workload installed.
 resolve and tag, 3.3s over SMB. The other 22 are correctly skipped — they fall in a
 775 s / 27 m hole in the track, which the gap rule rejects on time even though the
 endpoints are close, exactly the case that rule exists for. Interpolation cross-checked
-by hand against the raw GPX points and agrees to ~2-4 cm, which is the resolution of
-the 4-decimal-minute coordinate encoding. ExifTool reads the sidecars back correctly
-and `-validate` is OK.
+by hand against the raw GPX points and agrees to within the coordinate encoding's
+resolution: `xmp.rs` writes ten-thousandths of a minute, and 0.0001 minute of latitude
+is ~0.19 m, so that is the floor on any agreement this check can demonstrate. ExifTool
+reads the sidecars back correctly and `-validate` is OK.
 
 Note ExifTool calls the XMP `exif:GPSTimeStamp` property **`GPSDateTime`**; asking it
 for `GPSTimeStamp` on a sidecar returns nothing, which is a naming difference, not a
