@@ -16,7 +16,9 @@ CR3 ships first; the format seam is designed so NEF and others are a small, mech
 
 ## Prerequisite
 
-**Rust is not installed on this machine.** `cargo` and `rustc` are absent from PATH. Install via <https://rustup.rs> before starting. (ExifTool 12.76 *is* installed and is useful as an independent oracle when verifying output — see Verification — but it is not a runtime dependency.)
+**Satisfied — this section is retained only so the requirement is on record.** When the plan was written Rust was absent from this machine; it has since been installed and the project builds and ships from it.
+
+Verified present (2026-07-31): `rustc` / `cargo` **1.97.1**, toolchain `stable-x86_64-pc-windows-msvc`, with the Visual Studio Build Tools "Desktop development with C++" workload that the MSVC target links against. ExifTool **12.76** is also installed and is useful as an independent oracle when verifying output — see Verification — but it is **not** a runtime dependency and appears nowhere in shipped code.
 
 ---
 
@@ -293,5 +295,5 @@ Exit non-zero if any file errored or the gate fired; zero if everything was eith
    - `exiftool <file>.xmp` should read back the GPS coordinates; compare against the track for that timestamp.
    - This is a test-time sanity check only — no ExifTool call exists anywhere in the shipped program.
 7. **Determinism under parallelism:** run the same input twice at `--jobs 1` and `--jobs 16`; sidecar bytes and the sorted warning list must be **identical**. This is the main regression risk the concurrency design introduces, so it is worth an explicit check.
-8. **Scaling:** time a realistic directory at `--jobs 1`, `4`, and default. Confirm it actually speeds up, and find where throughput plateaus — that plateau is the storage ceiling, not a bug.
+8. **Scaling:** ✅ done — see the measured note under Concurrency. **Do not expect more threads to be faster.** On local storage throughput *peaks at `-j 2` and degrades above it*, which is why that is the default; a slowdown at `-j 8` is the expected result, not a bug. Over network storage the opposite holds and parallelism is worth ~12×. If you re-measure, evict the page cache first and delete existing sidecars, or you will be timing RAM and cheap overwrites rather than the real workload.
 9. **Behavior checks:** re-run and confirm existing sidecars are skipped with warnings; re-run with `--force` and confirm overwrite; `--dry-run` writes nothing; a deliberately wrong `--utc-offset` against a CR3 that has `OffsetTimeOriginal` fires the conflict warning *and still uses the EXIF value*; omitting `--utc-offset` on naive-timestamp files trips the gate with no sidecars written.
