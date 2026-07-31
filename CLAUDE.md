@@ -51,15 +51,18 @@ accuracy — never clamp, extrapolate, or bridge a hole to raise the tagged coun
 
 ## Status
 
-Implemented. Builds clean, 26 unit tests pass, `cargo clippy -- -D warnings` is
+Implemented. Builds clean, 37 unit tests pass, `cargo clippy -- -D warnings` is
 clean. Toolchain on this machine: Rust 1.97.1 MSVC, with the VS Build Tools C++
 workload installed.
 
 **Verified against real CR3s** (Canon EOS R5, `Q:\Lightroom\Images\2025\2025-09-17`,
-1024 files, with `Q:\Photo GPX Tracks\2025\...\2025-09-17- Malta Car Tour.gpx`): all
-1024 resolve and tag, 3.3s over SMB. Interpolation cross-checked by hand against the
-raw GPX points and agrees to ~2-4 cm, which is the resolution of the 4-decimal-minute
-coordinate encoding. ExifTool reads the sidecars back correctly and `-validate` is OK.
+1024 files, with `Q:\Photo GPX Tracks\2025\...\2025-09-17- Malta Car Tour.gpx`): 1002
+resolve and tag, 3.3s over SMB. The other 22 are correctly skipped — they fall in a
+775 s / 27 m hole in the track, which the gap rule rejects on time even though the
+endpoints are close, exactly the case that rule exists for. Interpolation cross-checked
+by hand against the raw GPX points and agrees to ~2-4 cm, which is the resolution of
+the 4-decimal-minute coordinate encoding. ExifTool reads the sidecars back correctly
+and `-validate` is OK.
 
 Note ExifTool calls the XMP `exif:GPSTimeStamp` property **`GPSDateTime`**; asking it
 for `GPSTimeStamp` on a sidecar returns nothing, which is a naming difference, not a
