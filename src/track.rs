@@ -251,7 +251,9 @@ mod tests {
         max_meters: f64::INFINITY,
     };
 
-    /// The shipped defaults.
+    /// Mirrors the shipped defaults — `--max-gap` and `--max-distance` in
+    /// `main.rs`. Nothing enforces the match, so change both together or these
+    /// tests quietly stop covering what the tool actually does.
     const DEFAULT: GapLimits = GapLimits {
         max_seconds: 60,
         max_meters: 100.0,

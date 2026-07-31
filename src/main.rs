@@ -39,11 +39,11 @@ use crate::track::{Fix, GapLimits, Lookup, Track};
 /// Counter-intuitively this is far below the core count. On local storage the
 /// EXIF read is nearly free (~0.3 s for 3883 CR3s) and the run is dominated by
 /// *creating* sidecars, which are NTFS directory-metadata operations that NTFS
-/// serialises within a directory. Extra threads there only add contention, so
+/// serializes within a directory. Extra threads there only add contention, so
 /// throughput peaks at 2 and degrades above it — measured both warm and cold.
 ///
 /// High-latency storage inverts this completely: over SMB the read dominates
-/// and parallelises ~12x, so `-j 16` or more is the right call there. That case
+/// and parallelizes ~12x, so `-j 16` or more is the right call there. That case
 /// is rare enough to be worth a flag rather than a worse default.
 const DEFAULT_JOBS: usize = 2;
 

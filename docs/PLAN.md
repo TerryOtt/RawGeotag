@@ -168,7 +168,7 @@ When two formats end up with identical arms, that is not duplication to factor a
 
 > **Measured since, and it settles the open question above — in both directions.** There is no single good `--jobs` value; the optimum is set by storage latency. On **local NVMe** the read is nearly free and the run is write-bound, so throughput peaks at **`-j 2`** and degrades above it, because NTFS serializes directory metadata. On **SMB** the read dominates and parallelizes **~12×**, so `-j 16`–`20` is right. The shipped default is therefore **2** (`DEFAULT_JOBS` in `main.rs`), tuned for the common local case, with the flag available for network storage. The prediction that nom-exif seeks within the BMFF rather than reading whole files **did** hold: 3883 CR3s resolve in ~0.3 s locally, impossible if 30 MB were read per file. CLAUDE.md's *Measured behavior* section carries the numbers; do not restate them here, so there is one place to correct.
 >
-> **A warm cache will mislead you.** An early sweep that pre-warmed the cache showed reading parallelizing only ~3× and plateauing near 4 threads — that was measuring RAM, not storage, and it understated cold behaviour by more than an order of magnitude. Evict, or use untouched data, before quoting read-scaling numbers.
+> **A warm cache will mislead you.** An early sweep that pre-warmed the cache showed reading parallelizing only ~3× and plateauing near 4 threads — that was measuring RAM, not storage, and it understated cold behavior by more than an order of magnitude. Evict, or use untouched data, before quoting read-scaling numbers.
 
 **Structure.** Two parallel phases with a gate between them:
 
