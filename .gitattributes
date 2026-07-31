@@ -1,0 +1,5 @@
+# Unix line endings everywhere: LF in the repository and LF in the working tree,
+# on every platform. `eol=lf` overrides a machine's core.autocrlf, so a Windows
+# checkout no longer produces CRLF and tools that rewrite files in place (sed,
+# formatters) cannot leave mixed endings behind.
+* text=auto eol=lf
