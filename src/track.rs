@@ -51,6 +51,21 @@ pub struct GapLimits {
     pub max_meters: f64,
 }
 
+impl GapLimits {
+    /// The shipped defaults, and the single place they are written down.
+    ///
+    /// `--max-gap` and `--max-distance` take their `default_value_t` from these
+    /// fields, and the tests below exercise the same value, so the tool and its
+    /// tests cannot drift apart the way a hand-copied constant would.
+    ///
+    /// Both limits are load-bearing and neither implies the other — see the gap
+    /// rule in CLAUDE.md before changing either.
+    pub const DEFAULT: Self = Self {
+        max_seconds: 60,
+        max_meters: 100.0,
+    };
+}
+
 /// Why a lookup did not produce a position, or the position it produced.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Lookup {
@@ -251,13 +266,9 @@ mod tests {
         max_meters: f64::INFINITY,
     };
 
-    /// Mirrors the shipped defaults — `--max-gap` and `--max-distance` in
-    /// `main.rs`. Nothing enforces the match, so change both together or these
-    /// tests quietly stop covering what the tool actually does.
-    const DEFAULT: GapLimits = GapLimits {
-        max_seconds: 60,
-        max_meters: 100.0,
-    };
+    /// The shipped defaults, read from the one place that defines them, so these
+    /// tests always exercise what the CLI actually hands to `lookup`.
+    const DEFAULT: GapLimits = GapLimits::DEFAULT;
 
     fn point(ts: i64, lat: f64, lon: f64, ele: Option<f64>) -> TrackPoint {
         TrackPoint {

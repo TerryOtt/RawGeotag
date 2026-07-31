@@ -75,11 +75,11 @@ struct Args {
     utc_offset: Option<FixedOffset>,
 
     /// Refuse to interpolate across a hole longer than this many seconds
-    #[arg(long, value_name = "SECONDS", default_value_t = 60)]
+    #[arg(long, value_name = "SECONDS", default_value_t = GapLimits::DEFAULT.max_seconds)]
     max_gap: i64,
 
     /// Refuse to interpolate across a hole wider than this many meters
-    #[arg(long, value_name = "METERS", default_value_t = 100.0)]
+    #[arg(long, value_name = "METERS", default_value_t = GapLimits::DEFAULT.max_meters)]
     max_distance: f64,
 
     /// Overwrite existing sidecars instead of skipping them
