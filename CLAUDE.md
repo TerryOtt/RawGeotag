@@ -238,3 +238,43 @@ One deviation from the plan, deliberately: a file with **no EXIF at all** return
 rather than letting it become a hard error. Otherwise two indistinguishable
 situations — no EXIF, versus EXIF without a date tag — would produce different exit
 codes.
+
+## Field patterns from real shoots
+
+**Which gap limit binds depends on how the camera was moving.** Knowing which knob to
+reach for saves a wasted pass:
+
+| Platform | Binding limit | Evidence |
+|---|---|---|
+| Ship under way | **distance** | NZ cruise 2025-03-14: 541 photos rejected on distance alone, **zero** on time. Typical hole `83 s / 599 m` — the vessel covers ~600 m between fixes seconds apart. |
+| Boat stationary or drifting | **time** | Cabo sunset cruise 2025-01-22: largest cluster `154 s / 74 m` — a 2½ minute hole in which the boat moved 74 m. |
+| Walking or driving on land | neither | Valletta, Jackson, St. Lucia all reached full or near-full coverage on the defaults. |
+
+So at sea raise `--max-distance`, at anchor raise `--max-gap`, on land change nothing.
+`--max-distance 2000` took the NZ sailing pass from 74% to 88%; `--max-gap 200`
+recovered 174 Cabo frames. Both were hand-checked against the raw track and agreed to
+centimetres — but **be clear what that proves**. It proves the interpolation
+*arithmetic* is right. It cannot prove the vessel held course between two fixes,
+because there are no intermediate observations to check against. Only relax a limit
+when the *other* limit shows the subject was barely moving, and say so when reporting.
+
+**Multi-track workflow that works.**
+
+- **Pass every disjoint track to every folder.** Nothing then depends on matching a GPX
+  filename to a folder name — which is the one failure mode the tool cannot detect,
+  since a wrongly-paired track just reports everything as outside-track.
+- **When one track overlaps others** — a multi-day cruise log spanning port days — the
+  overlap check makes a single run impossible, by design. Run the *specific* tracks
+  first, then the broad one **without `--force`**, so the more authoritative fix wins
+  and the broad track only fills what is left.
+- **GPX filenames lie.** Seen in the wild: a file named `2025-09-21` holding 09-24
+  data, a `2015` typo for `2025`, and an en dash instead of a hyphen. Read the span,
+  never the name: `rawgeotag --verbose --dry-run <empty-dir> cr3 <gpx>` prints it and
+  exits before touching a photo.
+- A track can be 8-9 MB on a single line. `grep -oE` over that on an SMB share is
+  unusably slow — copy it local first, or parse it as XML.
+
+**No cumulative sidecar tally lives here, deliberately.** It would change on every run,
+tells a future session nothing about how to write or review code, and is exactly the
+kind of hand-maintained number that went stale three times as a test count. The Status
+section records verification of *correctness*; volume is not evidence of that.
