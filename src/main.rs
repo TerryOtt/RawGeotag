@@ -65,8 +65,8 @@ struct Args {
     #[arg(long, value_name = "SECONDS", default_value_t = 60)]
     max_gap: i64,
 
-    /// Refuse to interpolate across a hole wider than this many metres
-    #[arg(long, value_name = "METRES", default_value_t = 100.0)]
+    /// Refuse to interpolate across a hole wider than this many meters
+    #[arg(long, value_name = "METERS", default_value_t = 100.0)]
     max_distance: f64,
 
     /// Overwrite existing sidecars instead of skipping them
@@ -382,7 +382,7 @@ fn write_one(photo: &Photo, track: &Track, args: &Args) -> Written {
 fn write_sidecar(photo: &Photo, track: &Track, args: &Args) -> WrittenKind {
     let limits = GapLimits {
         max_seconds: args.max_gap,
-        max_metres: args.max_distance,
+        max_meters: args.max_distance,
     };
 
     let fix = match track.lookup(photo.ts, limits) {
@@ -397,7 +397,7 @@ fn write_sidecar(photo: &Photo, track: &Track, args: &Args) -> WrittenKind {
             return WrittenKind::InGap {
                 description: format!(
                     "falls in a track gap of {}s / {:.0} m{reason}",
-                    gap.seconds, gap.metres
+                    gap.seconds, gap.meters
                 ),
             };
         }
@@ -433,7 +433,7 @@ fn write_sidecar(photo: &Photo, track: &Track, args: &Args) -> WrittenKind {
 
 /// Walk the tree, collecting matching files.
 ///
-/// Materialising into a `Vec` before parallelising gives rayon contiguous slices
+/// Materializing into a `Vec` before parallelizing gives rayon contiguous slices
 /// to split, which load-balances far better than bridging a sequential iterator.
 /// It also yields an exact denominator for the progress bar.
 fn collect_paths(dir: &Path, wanted_ext: &str) -> Result<(Vec<PathBuf>, Vec<String>)> {

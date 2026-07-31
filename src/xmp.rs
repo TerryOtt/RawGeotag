@@ -105,7 +105,7 @@ fn encode_coordinate(value: f64, positive: char, negative: char) -> String {
     )
 }
 
-/// Altitude is a rational in metres; the value is absolute and the *ref* carries
+/// Altitude is a rational in meters; the value is absolute and the *ref* carries
 /// the sign.
 fn encode_altitude(ele: f64) -> String {
     format!("{}/1000", (ele.abs() * 1000.0).round() as u64)

@@ -1,7 +1,7 @@
 //! Capture-time extraction.
 //!
 //! `MediaParser` pools internal buffers and is worth reusing, but sharing one
-//! across threads behind a mutex would serialise the whole run. Callers pass one
+//! across threads behind a mutex would serialize the whole run. Callers pass one
 //! in; `main` builds a parser per rayon worker with `map_init`.
 
 use std::path::Path;

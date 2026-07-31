@@ -61,7 +61,7 @@ rawgeotag ./shoot cr3 ./track.gpx --utc-offset -0700
 Canon CR3 ships first. Other formats (Nikon NEF and friends) are a small,
 mechanical addition — see the Format extensibility section of the plan.
 
-### Behaviour worth knowing
+### Behavior worth knowing
 
 - **Timezone.** EXIF `OffsetTimeOriginal` wins over `--utc-offset`; a disagreement
   is warned about but the EXIF value is used. Files with a naive timestamp and no
@@ -70,7 +70,7 @@ mechanical addition — see the Format extensibility section of the plan.
 - **Outside the track.** Photos taken before the track starts or after it ends are
   skipped and reported. No clamping, no extrapolation, no tolerance window.
 - **Gaps in the track.** A photo is tagged only if the two track points bracketing
-  its capture time are within **60 seconds AND 100 metres** of each other, and come
+  its capture time are within **60 seconds AND 100 meters** of each other, and come
   from the same `<trkseg>` recording run. Anything else is skipped and reported with
   the size of the gap.
 
@@ -95,9 +95,9 @@ The two phases behave differently, measured on 1000 files with a warm cache
 | Read EXIF + interpolate (`--dry-run`) | 16k files/s | 48k files/s | 47k files/s |
 | Including sidecar writes | 2.9k files/s | 2.2k files/s | 2.4k files/s |
 
-Reading parallelises about 3× and plateaus around 4 threads. **Writing does not
-parallelise on NTFS**: creating and renaming the temp file are two directory
-metadata operations per sidecar, and NTFS serialises those within a directory, so
+Reading parallelizes about 3× and plateaus around 4 threads. **Writing does not
+parallelize on NTFS**: creating and renaming the temp file are two directory
+metadata operations per sidecar, and NTFS serializes those within a directory, so
 extra threads only add contention. The write phase dominates this workload.
 
 That balance should shift with real input — these fixtures are 184 KB stand-ins,

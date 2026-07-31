@@ -18,6 +18,6 @@ walkdir = "2"
 
 [profile.release]
 # The workload is many short-lived parallel tasks over a large file count;
-# whole-program optimisation is worth the slower build for a released binary.
+# whole-program optimization is worth the slower build for a released binary.
 lto = "thin"
 codegen-units = 1

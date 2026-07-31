@@ -20,7 +20,7 @@ use time::OffsetDateTime;
 /// One timestamped position from the track.
 ///
 /// Times are Unix seconds: `gpx` speaks `time::OffsetDateTime` and `nom-exif`
-/// speaks `chrono::DateTime`, so both sides normalise to this one scalar domain
+/// speaks `chrono::DateTime`, so both sides normalize to this one scalar domain
 /// at the boundary rather than converting between the two time crates.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TrackPoint {
@@ -48,7 +48,7 @@ pub struct Fix {
 #[derive(Debug, Clone, Copy)]
 pub struct GapLimits {
     pub max_seconds: i64,
-    pub max_metres: f64,
+    pub max_meters: f64,
 }
 
 /// Why a lookup did not produce a position, or the position it produced.
@@ -65,7 +65,7 @@ pub enum Lookup {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Gap {
     pub seconds: i64,
-    pub metres: f64,
+    pub meters: f64,
     /// The bracketing points come from different recording runs.
     pub across_segments: bool,
 }
@@ -147,13 +147,13 @@ impl Track {
 
                 let gap = Gap {
                     seconds: after.ts - before.ts,
-                    metres: distance_metres(before, after),
+                    meters: distance_meters(before, after),
                     across_segments: before.segment != after.segment,
                 };
 
                 if gap.across_segments
                     || gap.seconds > limits.max_seconds
-                    || gap.metres > limits.max_metres
+                    || gap.meters > limits.max_meters
                 {
                     Lookup::InGap(gap)
                 } else {
@@ -187,12 +187,12 @@ fn fix(point: TrackPoint) -> Fix {
     }
 }
 
-/// Great-circle distance in metres.
+/// Great-circle distance in meters.
 ///
-/// Haversine is accurate to well under a metre at the scales this is tested
+/// Haversine is accurate to well under a meter at the scales this is tested
 /// against, which is far more than a 100 m threshold needs. It is naturally
 /// periodic in longitude, so an antimeridian-crossing pair needs no special case.
-fn distance_metres(a: TrackPoint, b: TrackPoint) -> f64 {
+fn distance_meters(a: TrackPoint, b: TrackPoint) -> f64 {
     const EARTH_RADIUS_M: f64 = 6_371_008.8;
 
     let (lat_a, lat_b) = (a.lat.to_radians(), b.lat.to_radians());
@@ -211,7 +211,7 @@ fn interpolate(a: TrackPoint, b: TrackPoint, ts: i64) -> Fix {
     let fraction = (ts - a.ts) as f64 / (b.ts - a.ts) as f64;
 
     // Longitude must take the shortest arc. A track crossing the antimeridian has
-    // neighbouring longitudes ~360 apart in raw value; interpolating those
+    // neighboring longitudes ~360 apart in raw value; interpolating those
     // directly puts the result on the opposite side of the planet.
     let b_lon = if (b.lon - a.lon).abs() > 180.0 {
         if b.lon < a.lon {
@@ -245,16 +245,16 @@ fn normalize_lon(lon: f64) -> f64 {
 mod tests {
     use super::*;
 
-    /// Generous enough that tests exercising other behaviour are not gated.
+    /// Generous enough that tests exercising other behavior are not gated.
     const LENIENT: GapLimits = GapLimits {
         max_seconds: i64::MAX,
-        max_metres: f64::INFINITY,
+        max_meters: f64::INFINITY,
     };
 
     /// The shipped defaults.
     const DEFAULT: GapLimits = GapLimits {
         max_seconds: 60,
-        max_metres: 100.0,
+        max_meters: 100.0,
     };
 
     fn point(ts: i64, lat: f64, lon: f64, ele: Option<f64>) -> TrackPoint {
@@ -435,7 +435,7 @@ mod tests {
             Lookup::InGap(gap) => {
                 assert_eq!(gap.seconds, 61);
                 assert!(!gap.across_segments);
-                assert!(gap.metres < 100.0, "distance was {}", gap.metres);
+                assert!(gap.meters < 100.0, "distance was {}", gap.meters);
             }
             other => panic!("expected InGap, got {other:?}"),
         }
@@ -452,7 +452,7 @@ mod tests {
         match track.lookup(1005, DEFAULT) {
             Lookup::InGap(gap) => {
                 assert_eq!(gap.seconds, 10);
-                assert!(gap.metres > 100.0, "distance was {}", gap.metres);
+                assert!(gap.meters > 100.0, "distance was {}", gap.meters);
             }
             other => panic!("expected InGap, got {other:?}"),
         }
@@ -472,7 +472,7 @@ mod tests {
 
     #[test]
     fn a_segment_boundary_is_never_bridged_however_close_the_points_are() {
-        // 1 second and centimetres apart, but from different recording runs.
+        // 1 second and centimeters apart, but from different recording runs.
         let adjacent = track(vec![
             in_segment(1000, 47.0, -122.0, 0),
             in_segment(1001, 47.0000001, -122.0, 1),
@@ -498,7 +498,7 @@ mod tests {
     #[test]
     fn an_exact_hit_inside_a_gap_still_resolves() {
         // The middle point is an observation, not a guess, even though its
-        // neighbours are far away in both time and distance.
+        // neighbors are far away in both time and distance.
         let track = track(vec![
             point(0, 47.0, -122.0, None),
             point(5000, 48.0, -122.0, None),
@@ -516,7 +516,7 @@ mod tests {
         // One degree of latitude is about 111.2 km anywhere on the globe.
         let a = point(0, 47.0, -122.0, None);
         let b = point(1, 48.0, -122.0, None);
-        let d = distance_metres(a, b);
+        let d = distance_meters(a, b);
         assert!(
             (d - 111_195.0).abs() < 200.0,
             "one degree of latitude measured {d} m"
@@ -528,7 +528,7 @@ mod tests {
         // 0.2 degrees of longitude at the equator, straddling the antimeridian.
         let a = point(0, 0.0, 179.9, None);
         let b = point(1, 0.0, -179.9, None);
-        let d = distance_metres(a, b);
+        let d = distance_meters(a, b);
         assert!(
             (d - 22_239.0).abs() < 200.0,
             "expected ~22 km across the antimeridian, got {d} m"
@@ -536,8 +536,8 @@ mod tests {
     }
 
     #[test]
-    fn identical_points_are_zero_metres_apart() {
+    fn identical_points_are_zero_meters_apart() {
         let a = point(0, 47.0, -122.0, None);
-        assert!(distance_metres(a, a) < 1e-6);
+        assert!(distance_meters(a, a) < 1e-6);
     }
 }

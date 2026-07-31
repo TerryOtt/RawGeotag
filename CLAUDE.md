@@ -105,11 +105,11 @@ Beware also that ExifTool reports CR3 `CreateDate` in *local machine time* from 
 BMFF container, which differs from the EXIF `DateTimeOriginal`. Compare against
 `DateTimeOriginal`, not `CreateDate`, when sanity-checking by hand.
 
-## Measured behaviour worth not rediscovering
+## Measured behavior worth not rediscovering
 
-Reading parallelises ~3x and plateaus near 4 threads. Sidecar *writing* does not
-parallelise at all on NTFS — temp-create plus rename are two directory metadata
-operations per file and NTFS serialises those within a directory, so more threads
+Reading parallelizes ~3x and plateaus near 4 threads. Sidecar *writing* does not
+parallelize at all on NTFS — temp-create plus rename are two directory metadata
+operations per file and NTFS serializes those within a directory, so more threads
 add contention. This does not make the rayon design wrong: real CR3s are ~30 MB and
 cost far more to parse than the 184 KB fixtures used here, so the read phase should
 dominate on real input. Do not "fix" this by dropping the atomic write.

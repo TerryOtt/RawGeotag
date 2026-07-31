@@ -218,7 +218,7 @@ Interpolation details:
 
 > **Reversed 2026-07-30, by the project mantra "a geotag off by more than 5 m is
 > worse than no geotag."** Interpolation now requires the bracketing points to be
-> within **60 seconds AND 100 metres** of each other (`--max-gap`,
+> within **60 seconds AND 100 meters** of each other (`--max-gap`,
 > `--max-distance`), and to come from the **same `<trkseg>`**. Exceeding any one of
 > the three skips the photo and reports the gap.
 >
