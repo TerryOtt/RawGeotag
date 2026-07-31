@@ -143,15 +143,21 @@ When two formats end up with identical arms, that is not duplication to factor a
 
 ## Concurrency
 
-**Shape of the work.** Per file: open and parse EXIF (I/O plus modest CPU), binary-search and interpolate (negligible), serialize and write a ~1 KB sidecar (I/O). Expect this to be **I/O-bound, not CPU-bound** — nom-exif seeks within the BMFF container rather than reading whole 30 MB files, so each input costs a few hundred KB of reads. Saturating cores is still the goal, but the realistic ceiling is storage, and on fast NVMe the useful thread count may *exceed* core count because threads spend time blocked. That is what `--jobs` is for; the default is rayon's (logical cores), and tuning upward is a legitimate experiment on this workload.
+**Shape of the work.** Per file: open and parse EXIF (I/O plus modest CPU), binary-search and interpolate (negligible), serialize and write a ~1 KB sidecar (I/O). Expect this to be **I/O-bound, not CPU-bound** — nom-exif seeks within the BMFF container rather than reading whole 30 MB files, so each input costs a few hundred KB of reads. Saturating cores is still the goal, but the realistic ceiling is storage. That is what `--jobs` is for, and the default is rayon's (logical cores).
+
+> **Measured since, and it settles the open question above.** Reading parallelizes ~3× and *plateaus near 4 threads*; sidecar writing does not parallelize at all on NTFS. So the speculation that useful thread count might exceed core count did not hold — tuning `--jobs` upward is not a general win. CLAUDE.md's *Measured behavior* section carries the numbers; do not restate them here, so there is one place to correct. The prediction that nom-exif seeks within the BMFF rather than reading whole files **did** hold: 1024 CR3s resolve in ~3 s over SMB, which is impossible if 30 MB were read per file.
 
 **Structure.** Two parallel phases with a gate between them:
 
 - **Phase A — collect and extract (parallel).** Walk the tree with `walkdir`, collecting matching paths into a `Vec`. Then `par_iter()` to extract each capture timestamp.
 - **Gate (sequential, cheap).** If any file resolved to a naive timestamp with no `--utc-offset` available, print the list and exit non-zero **having written nothing**.
-- **Phase B — interpolate and write (parallel).** `par_iter()` over the successful extractions; interpolate, serialize, write.
+- **Phase B — interpolate and write (parallel).** `into_par_iter()` over the successful extractions. **One worker task does the entire remainder for one photo** — `track.lookup` interpolates, `xmp::render` serializes, `xmp::write_atomic` writes. Geotagging is *not* a separate phase from writing; the only step split out is the EXIF read. The progress bars say `reading capture times` and `writing sidecars`, which invites the opposite reading — see CLAUDE.md's *Execution shape* section.
 
-The gate is why this is two phases rather than one. Forgetting `--utc-offset` on a body that does not record `OffsetTimeOriginal` would otherwise silently misplace every photo by the offset amount, and discovering that after half the sidecars are on disk is worse than discovering it before any are. In practice the gate rarely fires spuriously: `--utc-offset` applies *only* to naive files, so a mixed-camera shoot where one body records its zone and the other does not is handled correctly with a single flag. The cost of splitting is one `Vec<(PathBuf, i64)>` — a few hundred bytes per file. Phase A also yields an exact denominator for the progress bar.
+The gate is why this is two phases rather than one. Forgetting `--utc-offset` on a body that does not record `OffsetTimeOriginal` would otherwise silently misplace every photo by the offset amount, and discovering that after half the sidecars are on disk is worse than discovering it before any are. In practice the gate rarely fires spuriously: `--utc-offset` applies *only* to naive files, so a mixed-camera shoot where one body records its zone and the other does not is handled correctly with a single flag. The cost of splitting is one `Vec<Extraction>` — a path plus a timestamp or a diagnostic per file. Phase A also yields an exact denominator for the progress bar.
+
+**The barrier cannot be optimized away.** The gate needs every capture time, and *obtaining* a capture time is itself the expensive operation — the CR3 parse. There is no cheap pre-scan that validates timezones without doing the costly work, so the expensive pass and the gate are inherently the same pass. The barrier costs ~10% of wall clock (reads alone vs. reads plus writes on the 1024-file set), and a fused design would recover only part of that, since writes do not parallelize on NTFS anyway.
+
+**Considered and rejected:** when `--utc-offset` *is* supplied, no file can reach `Extraction::NeedsOffset`, so the gate is provably vacuous and the phases could legally fuse into a single pass. That buys a few percent on one code path in exchange for two structurally different execution models to reason about and test. Constraint 3 (readable over clever) wins; do not re-propose it.
 
 **Collect-then-parallelize, not `par_bridge`.** Materializing the walk into a `Vec` before parallelizing gives rayon contiguous slices to split, which load-balances far better than bridging a sequential iterator. Traversal is a small serial prefix; if it ever dominates (very deep trees, network storage), `jwalk` is a near drop-in replacement that parallelizes the walk itself.
 
@@ -163,7 +169,7 @@ paths.par_iter()
     .collect::<Vec<_>>()
 ```
 
-**No shared mutable state.** The track index is built once, before Phase B, and shared immutably as `&[TrackPoint]` — read-only, no lock, no contention. Workers return an outcome enum rather than incrementing counters or printing; tallying happens sequentially afterward.
+**No shared mutable state.** The track index is built once, before *Phase A* (`Track::load` is the first thing `main` does after the clock starts), and shared immutably as `&Track` — read-only, no lock, no contention. Workers return an outcome enum rather than incrementing counters or printing; tallying happens sequentially afterward.
 
 **Deterministic output.** Warnings are **never printed from worker threads** — interleaved stderr from N threads is unreadable and makes runs non-reproducible. Each worker returns its diagnostics in its outcome value; `main` sorts by path and prints after the phase completes. Progress goes through `indicatif`'s `ProgressBar`, which is internally synchronized; use `ProgressBar::suspend` if anything must print mid-phase.
 
