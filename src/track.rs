@@ -1,6 +1,12 @@
-//! The GPX track: load it once, then look positions up by timestamp.
+//! The GPX track index: load it once, then look positions up by timestamp.
 //!
-//! The track is built before any sidecar is written and is immutable afterwards,
+//! One or more GPX files are flattened into a single index — a day is often split
+//! across several tracks. The merge is deliberately conservative: the seam between
+//! two files is a segment break like any other and is never interpolated across,
+//! and files whose time ranges overlap are rejected outright rather than letting
+//! argument order decide which recording wins.
+//!
+//! The index is built before any sidecar is written and is immutable afterwards,
 //! so workers share it as `&Track` with no lock and no contention.
 //!
 //! Interpolation is refused wherever the data does not actually support it. A

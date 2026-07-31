@@ -1,7 +1,11 @@
-//! Geotag camera raw files from a GPX track by writing XMP sidecars.
+//! Geotag camera raw files from one or more GPX tracks by writing XMP sidecars.
 //!
 //! Raw files are never modified; the whole operation is undone by deleting the
 //! `.xmp` files.
+//!
+//! Several GPX files may be given for one directory, since a day's shooting is
+//! often split across separate recordings. `track.rs` documents what keeps that
+//! merge honest.
 //!
 //! The run is two parallel phases with a gate between them. Phase A extracts every
 //! capture time; the gate refuses to continue if any file has a naive timestamp
@@ -51,14 +55,18 @@ const DEFAULT_JOBS: usize = 2;
 #[command(
     name = "rawgeotag",
     version,
-    about = "Geotag camera raw files from a GPX track by writing XMP sidecars",
+    about = "Geotag camera raw files from one or more GPX tracks by writing XMP sidecars",
     after_help = "Raw files are never modified. Existing sidecars are skipped unless --force \
                   is given, which overwrites them wholesale — discarding any develop settings \
                   or keywords another tool stored there.\n\n\
                   A photo is only tagged when the two track points bracketing its capture time \
                   are close in BOTH time and distance, and come from the same recording run. \
                   A geotag that is wrong is worse than one that is missing, so anything the \
-                  track does not actually support is skipped and reported."
+                  track does not actually support is skipped and reported.\n\n\
+                  Several GPX files may be given for a day split across separate recordings. \
+                  They are merged, but the seam between two files is never interpolated \
+                  across, and files whose time ranges overlap are rejected before anything \
+                  is written — run those as separate passes instead."
 )]
 struct Args {
     /// Parent directory, searched recursively

@@ -1,6 +1,6 @@
 # RawGeotag — working notes for Claude
 
-A Rust CLI that geotags camera raw files from a GPX track, writing XMP sidecars.
+A Rust CLI that geotags camera raw files from one or more GPX tracks, writing XMP sidecars.
 
 **Read [`docs/PLAN.md`](docs/PLAN.md) before proposing or writing anything.** The
 design is settled there — CLI shape, crates, module layout, concurrency model, and
@@ -103,8 +103,10 @@ risk concentrates in the `0.x` crates: `gpx`, `chrono`, `time`, `indicatif`.
 
 - Sidecar naming: `IMG_1234.CR3` → `IMG_1234.xmp` (Adobe convention, extension replaced).
 - Timezone: EXIF `OffsetTimeOriginal` wins over `--utc-offset`; warn on conflict.
-- Photos outside the GPX track are skipped and reported — no clamping, no
-  extrapolation, no tolerance window.
+- Photos outside the track are skipped and reported — no clamping, no
+  extrapolation, no tolerance window. With several GPX files that means outside the
+  *union* of them; a photo landing in the seam between two files is a gap, not an
+  outside-track case.
 - **Gap rule (reverses the plan's original "no `--max-gap`" decision).**
   Interpolate only when the bracketing points are within **60 s AND 100 m**
   (`--max-gap`, `--max-distance`) *and* share a `<trkseg>`. Both limits are load-

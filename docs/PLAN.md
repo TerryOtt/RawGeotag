@@ -1,10 +1,10 @@
-# RawGeotag — geotag raw files from a GPX track
+# RawGeotag — geotag raw files from GPX tracks
 
 ## Context
 
 Camera raw files carry a capture timestamp but no location; a separate GPS logger (phone, watch, handheld) records a GPX track over the same period. Correlating the two by time recovers where each frame was shot.
 
-This builds a Rust CLI that walks a directory tree for raw files, reads each capture time from EXIF, linearly interpolates position from the GPX track at that instant, and writes an XMP sidecar carrying latitude, longitude, and altitude. Raw files are never modified — all output goes to sidecars, so the operation is fully reversible by deleting the `.xmp` files.
+This builds a Rust CLI that walks a directory tree for raw files, reads each capture time from EXIF, linearly interpolates position from the GPX track at that instant, and writes an XMP sidecar carrying latitude, longitude, and altitude. (One directory may be matched against **several** GPX files — a day is often split across separate recordings. That arrived after the original design; the rules keeping the merge honest are under track.rs.) Raw files are never modified — all output goes to sidecars, so the operation is fully reversible by deleting the `.xmp` files.
 
 Three constraints shape the design:
 
@@ -311,7 +311,7 @@ Exit non-zero if any file errored or the gate fired; zero if everything was eith
 2. **Unit tests** (`track.rs`, no fixtures needed): exact-timestamp hit; midpoint interpolation against hand-computed values; before-first and after-last both skip; antimeridian crossing stays near ±180; missing `ele` on one bracketing point suppresses altitude.
 3. **Unit test** (`xmp.rs`): a known lat/lon renders to the exact expected `DDD,MM.mmk` strings, including a southern/western hemisphere case and a negative altitude.
 4. **Unit test** (`format.rs`): iterate `RawFormat::ALL` and assert every declared extension round-trips through `from_extension`, in mixed case. This test fails if a new variant is added without a table entry, catching the one gap the compiler cannot.
-5. **End-to-end** on a real CR3 plus its GPX track — *you will need to supply these*. Confirm the sidecar lands next to the raw with the right name.
+5. **End-to-end** on a real CR3 plus its GPX track — *you will need to supply these*. Confirm the sidecar lands next to the raw with the right name. Also pass **two** non-overlapping tracks for one directory and confirm the merged span covers both, then pass two overlapping ones and confirm the run aborts with no sidecars written.
 6. **Cross-check against ExifTool**, which is installed and is an independent implementation:
    - `exiftool -DateTimeOriginal -OffsetTimeOriginal <file>.cr3` should match what the tool extracted.
    - `exiftool <file>.xmp` should read back the GPS coordinates; compare against the track for that timestamp.

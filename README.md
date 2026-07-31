@@ -1,6 +1,6 @@
 # RawGeotag
 
-A Rust CLI that geotags camera raw files from a GPX track.
+A Rust CLI that geotags camera raw files from one or more GPX tracks.
 
 Raw files carry a capture timestamp but no location; a GPS logger records a track
 over the same period. RawGeotag correlates the two by time, linearly interpolating
