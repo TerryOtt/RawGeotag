@@ -12,8 +12,8 @@ operation is reversible by deleting the generated `.xmp` files.
 
 ## Status
 
-**Implemented and building.** 42 unit tests pass; `cargo clippy -- -D warnings` is
-clean.
+**Implemented and building.** The unit test suite passes and `cargo clippy -- -D
+warnings` is clean; run `cargo test` for the current tally.
 
 Verified against two real Canon EOS R5 shoots and their GPX tracks:
 
