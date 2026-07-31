@@ -111,6 +111,18 @@ src/
 So the seam is placed where variation genuinely lives: **extension mapping and per-format tag preferences**, expressed as an enum with a data table.
 
 ```rust
+/// A capture-time tag paired with the tag carrying its UTC offset.
+///
+/// The pairing must be explicit: nom-exif surfaces the two separately rather
+/// than merging them. See the CR3 correction under raw.rs below — a bare
+/// `ExifTag` list here is what caused every Canon raw to be gated as
+/// "no timezone" on the first real-data run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CaptureTag {
+    pub datetime: ExifTag,
+    pub offset: ExifTag,
+}
+
 /// A raw format we know how to read a capture time from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RawFormat {
@@ -129,9 +141,12 @@ impl RawFormat {
     }
 
     /// Capture-time tags to try, in priority order.
-    pub fn capture_tags(self) -> &'static [ExifTag] {
+    pub fn capture_tags(self) -> &'static [CaptureTag] {
         match self {
-            Self::Cr3 => &[ExifTag::DateTimeOriginal, ExifTag::CreateDate],
+            Self::Cr3 => &[
+                CaptureTag { datetime: ExifTag::DateTimeOriginal, offset: ExifTag::OffsetTimeOriginal },
+                CaptureTag { datetime: ExifTag::CreateDate,       offset: ExifTag::OffsetTimeDigitized },
+            ],
         }
     }
 
@@ -191,7 +206,8 @@ Report elapsed wall time and throughput (files/sec) in the summary, so `--jobs` 
 let ms = MediaSource::open(path)?;
 let exif = parser.parse_exif(ms)?;              // parser supplied by map_init
 let dt = format.capture_tags().iter()           // per-format priority order
-    .find_map(|tag| exif.get(*tag));            // -> ExifDateTime
+    .find_map(|tag| exif.get(tag.datetime));    // -> ExifDateTime
+// ...then read tag.offset separately; see the CR3 correction below.
 ```
 
 `ExifDateTime` is an enum with two cases:
@@ -218,7 +234,7 @@ Convert the resolved `DateTime<FixedOffset>` with `.timestamp()` and hand off an
 
 ## track.rs — GPX and interpolation
 
-Load once at startup, before Phase B. Flatten every `track.segments[].points[]` plus standalone `gpx.waypoints` into one `Vec<TrackPoint { ts: i64, lat: f64, lon: f64, ele: Option<f64> }>`, dropping points with no timestamp, then sort by `ts` and dedupe. After construction it is immutable and freely shared across threads.
+Load once at startup, before *Phase A*. Flatten every `track.segments[].points[]` plus standalone `gpx.waypoints` into one `Vec<TrackPoint { ts: i64, lat: f64, lon: f64, ele: Option<f64>, segment: u32 }>`, dropping points with no timestamp, then sort by `ts` and dedupe. (`segment` postdates the original design — it identifies the contiguous recording run a point came from, and is what lets the reversed gap rule below refuse to bridge a `<trkseg>` break.) After construction it is immutable and freely shared across threads.
 
 Look up by `slice::binary_search_by_key(&ts, |p| p.ts)`:
 - exact hit → use that point
