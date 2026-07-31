@@ -35,6 +35,48 @@ accuracy — never clamp, extrapolate, or bridge a hole to raise the tagged coun
 
 4. **Raw files are never modified.** Output is sidecars only.
 
+## Execution shape: two phases with a gate between them
+
+**The phase boundary is not where the progress bars suggest.** They read `reading
+capture times` and `writing sidecars`, which invites the conclusion that phase one
+geotags and phase two writes. It does not. Interpolation, XMP rendering, and the
+write are all **fused in one worker task per photo**; the only step hoisted into its
+own pass is the EXIF capture-time read.
+
+| Step | Where | Parallel? | Does |
+|---|---|---|---|
+| Phase A | `main`, `par_iter().map_init(MediaParser::new, ..)` → `extract` | yes | EXIF capture time **only** |
+| Gate | `main`, sequential scan for `Extraction::NeedsOffset` | no | abort the run, or let it proceed |
+| Phase B | `main`, `into_par_iter()` → `write_one` → `write_sidecar` | yes | `track.lookup` interpolate → `xmp::render` → `xmp::write_atomic` |
+
+**Why phase A exists at all — the gate.** A capture time with no timezone and no
+`--utc-offset` could misplace a photo by a whole day of travel. The tool refuses the
+entire run in that case, which is only expressible if *every* capture time is known
+before *any* sidecar is written. That requirement, and nothing else, forces the
+barrier.
+
+**Why it cannot be fused away.** The gate needs the capture time, and obtaining the
+capture time *is* the expensive operation — a ~30 MB CR3 parse. There is no cheap
+pre-scan that validates timezones without doing the costly work, so the barrier
+cannot be moved earlier or made cheaper. The expensive pass and the gate are
+inherently the same pass.
+
+**What the barrier costs.** ~10% of wall clock: on the 1024-file Malta set, reads
+alone (`--dry-run`) are 3.0 s and read-plus-write is ~3.3 s. A fused single-pass
+design could overlap some writing with reading and recover a fraction of that — less
+than it sounds, since sidecar writes do not parallelize on NTFS anyway (see *Measured
+behavior* below). Not a good trade against the guarantee.
+
+**Rejected, do not re-propose:** when `--utc-offset` *is* supplied no file can reach
+`NeedsOffset`, so the gate is provably vacuous and the two phases could legally fuse
+into one pass. This buys a few percent on one code path in exchange for two
+structurally different execution models to reason about and test. Constraint 3 wins.
+
+**Workers never print.** Each returns its diagnostics inside its outcome value
+(`Extraction`, `Written`); `main` sorts by path and prints after the phase completes.
+This is what makes output byte-identical at any `--jobs`. Do not add an `eprintln!`
+inside a worker.
+
 ## Dependency versions: check crates.io, never recall from memory
 
 The version numbers in [`docs/PLAN.md`](docs/PLAN.md)'s dependency table are
