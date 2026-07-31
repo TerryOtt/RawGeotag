@@ -47,7 +47,7 @@ rawgeotag <DIR> <EXT> <GPX> [OPTIONS]
   --max-distance <M>    refuse to interpolate across a wider hole [default: 100]
   --force               overwrite existing sidecars (default: skip with a warning)
   --dry-run             do all work, write nothing
-  -j, --jobs <N>        worker threads (default: logical core count)
+  -j, --jobs <N>        worker threads (default: 2; raise for network storage)
       --no-progress     suppress the progress bar
   -v, --verbose         per-file detail
 ```
@@ -87,22 +87,36 @@ mechanical addition — see the Format extensibility section of the plan.
 
 ## Performance
 
-The two phases behave differently, measured on 1000 files with a warm cache
-(20 logical cores, NVMe):
+**`--jobs` defaults to 2.** That is well below the core count, and deliberate: the
+best thread count is set by storage latency, and local and network storage want
+opposite answers.
 
-| Phase | 1 thread | 4 threads | 20 threads |
+Measured on a real shoot — 3883 Canon R5 CR3s (188 GB) on local NVMe, 20 logical
+cores, creating 2394 sidecars from scratch:
+
+| `-j` | 1 | **2** | 4 | 20 |
+|---|---|---|---|---|
+| Full run | 1.9 s | **1.7 s** | 1.9 s | 1.9 s |
+
+The EXIF read is nearly free locally (~0.3 s for all 3883 files, since nom-exif
+seeks within the BMFF rather than reading whole 30 MB files), so the run is
+dominated by *creating* sidecars. **Writing does not parallelize on NTFS**: the
+temp-file create and the rename are two directory-metadata operations each, and
+NTFS serializes those within a directory, so extra threads only add contention.
+
+Network storage inverts this entirely. Cold reads over SMB:
+
+| `-j` | 1 | 4 | 20 |
 |---|---|---|---|
-| Read EXIF + interpolate (`--dry-run`) | 16k files/s | 48k files/s | 47k files/s |
-| Including sidecar writes | 2.9k files/s | 2.2k files/s | 2.4k files/s |
+| Read throughput | 25 files/s | 107 files/s | 296 files/s |
 
-Reading parallelizes about 3× and plateaus around 4 threads. **Writing does not
-parallelize on NTFS**: creating and renaming the temp file are two directory
-metadata operations per sidecar, and NTFS serializes those within a directory, so
-extra threads only add contention. The write phase dominates this workload.
+Nearly **12×** from parallelism — about 155 s single-threaded versus 13 s for a
+3883-file day. If your raws live on a NAS or network share, pass `-j 16` or higher.
 
-That balance should shift with real input — these fixtures are 184 KB stand-ins,
-whereas a real CR3 is ~30 MB and costs far more to parse, while the per-sidecar
-write cost stays fixed. `--jobs` exists so this is tunable rather than guesswork.
+Two traps if you benchmark this yourself: a warm page cache measures RAM rather than
+storage and understates cold read scaling by more than an order of magnitude, and
+*overwriting* an existing sidecar costs about 2.3× less than *creating* one, so
+delete the `.xmp` files between runs instead of using `--force`.
 
 ## Design constraints
 

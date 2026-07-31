@@ -60,7 +60,7 @@ rawgeotag <DIR> <EXT> <GPX> [OPTIONS]
   --utc-offset <±HHMM>  offset for files with no EXIF timezone, e.g. -0700, +0430
   --force               overwrite existing sidecars (default: skip with a warning)
   --dry-run             do all work, write nothing
-  -j, --jobs <N>        worker threads (default: logical core count)
+  -j, --jobs <N>        worker threads (default: 2; raise for network storage)
       --no-progress     suppress the progress bar
   -v, --verbose         per-file detail
 ```
@@ -143,9 +143,11 @@ When two formats end up with identical arms, that is not duplication to factor a
 
 ## Concurrency
 
-**Shape of the work.** Per file: open and parse EXIF (I/O plus modest CPU), binary-search and interpolate (negligible), serialize and write a ~1 KB sidecar (I/O). Expect this to be **I/O-bound, not CPU-bound** — nom-exif seeks within the BMFF container rather than reading whole 30 MB files, so each input costs a few hundred KB of reads. Saturating cores is still the goal, but the realistic ceiling is storage. That is what `--jobs` is for, and the default is rayon's (logical cores).
+**Shape of the work.** Per file: open and parse EXIF (I/O plus modest CPU), binary-search and interpolate (negligible), serialize and write a ~1 KB sidecar (I/O). Expect this to be **I/O-bound, not CPU-bound** — nom-exif seeks within the BMFF container rather than reading whole 30 MB files, so each input costs a few hundred KB of reads. The realistic ceiling is storage, not cores — and *saturating cores turned out not to be the goal at all*. See the measured note below: the default is **2**, not rayon's logical-core count, because on local storage extra threads contend on NTFS directory metadata and make the run slower.
 
-> **Measured since, and it settles the open question above.** Reading parallelizes ~3× and *plateaus near 4 threads*; sidecar writing does not parallelize at all on NTFS. So the speculation that useful thread count might exceed core count did not hold — tuning `--jobs` upward is not a general win. CLAUDE.md's *Measured behavior* section carries the numbers; do not restate them here, so there is one place to correct. The prediction that nom-exif seeks within the BMFF rather than reading whole files **did** hold: 1024 CR3s resolve in ~3 s over SMB, which is impossible if 30 MB were read per file.
+> **Measured since, and it settles the open question above — in both directions.** There is no single good `--jobs` value; the optimum is set by storage latency. On **local NVMe** the read is nearly free and the run is write-bound, so throughput peaks at **`-j 2`** and degrades above it, because NTFS serializes directory metadata. On **SMB** the read dominates and parallelizes **~12×**, so `-j 16`–`20` is right. The shipped default is therefore **2** (`DEFAULT_JOBS` in `main.rs`), tuned for the common local case, with the flag available for network storage. The prediction that nom-exif seeks within the BMFF rather than reading whole files **did** hold: 3883 CR3s resolve in ~0.3 s locally, impossible if 30 MB were read per file. CLAUDE.md's *Measured behavior* section carries the numbers; do not restate them here, so there is one place to correct.
+>
+> **A warm cache will mislead you.** An early sweep that pre-warmed the cache showed reading parallelizing only ~3× and plateauing near 4 threads — that was measuring RAM, not storage, and it understated cold behaviour by more than an order of magnitude. Evict, or use untouched data, before quoting read-scaling numbers.
 
 **Structure.** Two parallel phases with a gate between them:
 

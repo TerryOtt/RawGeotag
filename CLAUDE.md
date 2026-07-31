@@ -23,7 +23,9 @@ accuracy — never clamp, extrapolate, or bridge a hole to raise the tagged coun
    appear in shipped code.
 
 2. **Optimize for wall-clock time.** The workload is embarrassingly parallel and is
-   expected to be I/O-bound, not CPU-bound. Keep all cores busy. Do not introduce
+   I/O-bound, not CPU-bound. **Match the thread count to storage latency, not to
+   core count** — "keep all cores busy" is actively wrong here, and `--jobs`
+   defaults to 2 for that reason (see *Measured behavior*). Do not introduce
    shared mutable state on the hot path, and never share a `MediaParser` across
    threads behind a mutex — use rayon's `map_init` for per-worker parsers.
 
@@ -149,12 +151,33 @@ BMFF container, which differs from the EXIF `DateTimeOriginal`. Compare against
 
 ## Measured behavior worth not rediscovering
 
-Reading parallelizes ~3x and plateaus near 4 threads. Sidecar *writing* does not
-parallelize at all on NTFS — temp-create plus rename are two directory metadata
-operations per file and NTFS serializes those within a directory, so more threads
-add contention. This does not make the rayon design wrong: real CR3s are ~30 MB and
-cost far more to parse than the 184 KB fixtures used here, so the read phase should
-dominate on real input. Do not "fix" this by dropping the atomic write.
+**`--jobs` defaults to 2, deliberately, and that is not a typo.** The optimum depends
+entirely on storage latency, and the two cases point in opposite directions:
+
+| | read phase | best `-j` | why |
+|---|---|---|---|
+| **Local NVMe** | ~0.3 s / 3883 CR3s — nearly free | **2** | run is write-bound; NTFS serializes directory metadata, so threads contend |
+| **SMB / network** | dominates the run | **16-20** | latency-bound; threads keep requests in flight |
+
+Local NVMe, full workflow on 3883 files creating 2394 sidecars — `-j 2` measured
+~1470 ms warm and ~1723 ms cold, against ~1790-1850 ms at `-j 20` and ~1640-1920 ms
+at `-j 1`. `-j 2` won at min, median and max, warm *and* cold, so it is not noise.
+
+Cold SMB read throughput: **25 files/s at `-j 1`, 107 at `-j 4`, 296 at `-j 20`** —
+nearly **12x** from parallelism. Projected onto a 3883-file day that is ~155 s
+single-threaded versus ~13 s. This is why the rayon design stays even though the
+local case gains nothing from it: dropping threads would optimize the case that is
+already under two seconds and wreck the case that takes minutes.
+
+**Warm benchmarks lie here.** An earlier sweep with a cache warm-up showed reading
+parallelizing only ~3x and plateauing near 4 threads; that measured RAM, not storage.
+Always evict or use untouched data before quoting read-scaling numbers.
+
+Sidecar *writing* does not parallelize at all on NTFS — temp-create plus rename are
+two directory metadata operations per file and NTFS serializes those within a
+directory. Note also that *creating* a new sidecar costs ~2.3x *overwriting* an
+existing one, so a `--force` re-run is not a valid benchmark of a fresh import;
+delete the `.xmp` files first. Do not "fix" any of this by dropping the atomic write.
 
 One deviation from the plan, deliberately: a file with **no EXIF at all** returns
 `nom_exif::Error::ExifNotFound`, and `raw.rs` maps that to `Capture::NoCaptureTime`

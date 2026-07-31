@@ -34,6 +34,19 @@ use crate::format::RawFormat;
 use crate::raw::Capture;
 use crate::track::{Fix, GapLimits, Lookup, Track};
 
+/// Default worker count, tuned for the common case: raws on a local SSD.
+///
+/// Counter-intuitively this is far below the core count. On local storage the
+/// EXIF read is nearly free (~0.3 s for 3883 CR3s) and the run is dominated by
+/// *creating* sidecars, which are NTFS directory-metadata operations that NTFS
+/// serialises within a directory. Extra threads there only add contention, so
+/// throughput peaks at 2 and degrades above it — measured both warm and cold.
+///
+/// High-latency storage inverts this completely: over SMB the read dominates
+/// and parallelises ~12x, so `-j 16` or more is the right call there. That case
+/// is rare enough to be worth a flag rather than a worse default.
+const DEFAULT_JOBS: usize = 2;
+
 #[derive(Parser)]
 #[command(
     name = "rawgeotag",
@@ -77,9 +90,9 @@ struct Args {
     #[arg(long)]
     dry_run: bool,
 
-    /// Worker threads [default: logical core count]
-    #[arg(short, long, value_name = "N")]
-    jobs: Option<usize>,
+    /// Worker threads. Tuned for local SSD; raise it for network storage
+    #[arg(short, long, value_name = "N", default_value_t = DEFAULT_JOBS)]
+    jobs: usize,
 
     /// Suppress the progress bar
     #[arg(long)]
@@ -120,15 +133,13 @@ fn run() -> Result<Outcome> {
     })?;
     let wanted_ext = args.ext.trim_start_matches('.').to_ascii_lowercase();
 
-    if let Some(jobs) = args.jobs {
-        if jobs == 0 {
-            bail!("--jobs must be at least 1");
-        }
-        rayon::ThreadPoolBuilder::new()
-            .num_threads(jobs)
-            .build_global()
-            .context("configuring the worker thread pool")?;
+    if args.jobs == 0 {
+        bail!("--jobs must be at least 1");
     }
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(args.jobs)
+        .build_global()
+        .context("configuring the worker thread pool")?;
 
     let started = Instant::now();
 
