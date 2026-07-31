@@ -78,10 +78,12 @@ Positional order follows the original spec. `--utc-offset` is a flag rather than
 | `nom-exif` | 3.6 | **pure-Rust EXIF, with explicit Canon CR3 support** |
 | `gpx` | 0.10 | GPX parsing |
 | `rayon` | 1 | data parallelism |
-| `indicatif` | 0.17 | thread-safe progress bar |
+| `indicatif` | 0.18 | thread-safe progress bar |
 | `chrono` | 0.4 | EXIF-side time (already nom-exif's public type) |
 | `time` | 0.3 | GPX-side time (already gpx's public type) |
 | `anyhow` | 1 | error context |
+
+These versions are indicative of what the design was written against, not a statement of what is current. Confirm against crates.io (`cargo search <crate> --limit 1`) before putting any of them in `Cargo.toml`; see CLAUDE.md for why the `0.x` crates in particular go stale silently.
 
 Two time crates appear because they are the public types of two upstream crates. Do **not** write conversions between them — normalize both sides to `i64` Unix seconds at the boundary (`chrono::DateTime::timestamp()`, `time::OffsetDateTime::unix_timestamp()`) and do all correlation arithmetic in that single scalar domain.
 

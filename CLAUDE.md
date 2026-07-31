@@ -35,6 +35,25 @@ accuracy — never clamp, extrapolate, or bridge a hole to raise the tagged coun
 
 4. **Raw files are never modified.** Output is sidecars only.
 
+## Dependency versions: check crates.io, never recall from memory
+
+The version numbers in [`docs/PLAN.md`](docs/PLAN.md)'s dependency table are
+**indicative, not authoritative**. Before any of them lands in `Cargo.toml` — a new
+dep, or a bump — confirm the current release with `cargo search <crate> --limit 1`.
+
+This is not hypothetical. `indicatif` was pinned at `"0.17"` because that version was
+familiar, not because it was current; 0.18 had already shipped six patch releases by
+then. It sat stale until a human noticed.
+
+What makes this bite is Cargo's `0.x` rule: for a pre-1.0 crate the **minor** is the
+breaking-change position, so `"0.17"` means `>=0.17.0, <0.18.0` and *can never*
+resolve to 0.18. `cargo update` respects that ceiling and reports "Locking 0
+packages" while three minor releases behind — reassuring and wrong. **A clean `cargo
+update` is not evidence of being current.** Only crates.io can tell you.
+
+`1.x` deps are mostly self-correcting (`anyhow = "1"` keeps picking up 1.0.x), so the
+risk concentrates in the `0.x` crates: `gpx`, `chrono`, `time`, `indicatif`.
+
 ## Settled decisions worth not rediscovering
 
 - Sidecar naming: `IMG_1234.CR3` → `IMG_1234.xmp` (Adobe convention, extension replaced).
