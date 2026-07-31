@@ -115,7 +115,7 @@ risk concentrates in the `0.x` crates: `gpx`, `chrono`, `time`, `indicatif`.
 
 ## Status
 
-Implemented. Builds clean, 37 unit tests pass, `cargo clippy -- -D warnings` is
+Implemented. Builds clean, 42 unit tests pass, `cargo clippy -- -D warnings` is
 clean. Toolchain on this machine: Rust 1.97.1 MSVC, with the VS Build Tools C++
 workload installed.
 

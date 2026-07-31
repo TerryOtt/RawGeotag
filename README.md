@@ -12,7 +12,7 @@ operation is reversible by deleting the generated `.xmp` files.
 
 ## Status
 
-**Implemented and building.** 37 unit tests pass; `cargo clippy -- -D warnings` is
+**Implemented and building.** 42 unit tests pass; `cargo clippy -- -D warnings` is
 clean.
 
 Verified against two real Canon EOS R5 shoots and their GPX tracks:
