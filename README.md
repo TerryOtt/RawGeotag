@@ -45,11 +45,11 @@ The binary lands at `target/release/rawgeotag` (`rawgeotag.exe` on Windows).
 ## Usage
 
 ```
-rawgeotag <DIR> <EXT> <GPX> [OPTIONS]
+rawgeotag <DIR> <EXT> <GPX>... [OPTIONS]
 
   DIR    parent directory, searched recursively
   EXT    raw extension, e.g. "cr3" (case-insensitive, leading "." tolerated)
-  GPX    path to the GPX track file
+  GPX    path to a GPX track file; repeat for a day split across several tracks
 
   --utc-offset <±HHMM>     offset for files with no EXIF timezone, e.g. -0700
   --max-gap <SECONDS>      refuse to interpolate across a longer hole [default: 60]
@@ -67,6 +67,20 @@ Example:
 rawgeotag ./shoot cr3 ./track.gpx --utc-offset -0700
 ```
 
+A day is often split across several tracks — a driving log and a separate evening
+walk. Pass them all and each photo is matched against whichever one covers its
+capture time:
+
+```
+rawgeotag ./shoot cr3 ./daytime.gpx ./evening.gpx
+```
+
+**Tracks that overlap in time are a fatal error** and nothing is written. Where two
+tracks both cover an instant they can disagree about where you were, and picking
+one would make the geotag depend on the order you listed the files. Run overlapping
+tracks as separate passes instead — photos outside a track are skipped, so a later
+pass tags only what the earlier one left alone.
+
 Canon CR3 ships first. Other formats (Nikon NEF and friends) are a small,
 mechanical addition — see the Format extensibility section of the plan.
 
@@ -78,6 +92,10 @@ mechanical addition — see the Format extensibility section of the plan.
   misplacing every photo by the offset.
 - **Outside the track.** Photos taken before the track starts or after it ends are
   skipped and reported. No clamping, no extrapolation, no tolerance window.
+- **Several tracks.** Files are merged into one index, but a seam between two files
+  is treated exactly like a `<trkseg>` break — never interpolated across, however
+  close the two ends happen to be in time and distance. Nothing is known about where
+  you went between one recording and the next.
 - **Gaps in the track.** A photo is tagged only if the two track points bracketing
   its capture time are within **60 seconds AND 100 meters** of each other, and come
   from the same `<trkseg>` recording run. Anything else is skipped and reported with

@@ -112,6 +112,18 @@ risk concentrates in the `0.x` crates: `gpx`, `chrono`, `time`, `indicatif`.
   and return between two nearby fixes, so a 140 s / 8 m hole is still untrustworthy.
   Do not "simplify" this to a single condition.
 - Existing sidecars are skipped with a warning; `--force` overwrites. No merging.
+- **Multiple GPX files** are accepted (`<GPX>...`) and merged into one index, for a
+  day split across several tracks. Two rules make that safe, and neither is
+  optional:
+  - **Segment numbering continues across files**, so a seam between two files is a
+    segment break and is never interpolated across. Restarting the counter per file
+    would make the last point of one and the first of the next look contiguous.
+  - **Overlapping time ranges are a hard error**, checked while the track is built
+    and therefore before any sidecar is written. Two tracks covering one instant can
+    disagree, and the index keeps one point per timestamp — so the winner would be
+    decided by argument order. A geotag decided by argument order is the mantra's
+    exact failure mode. Inclusive bound: sharing one second is an overlap. The remedy
+    is separate passes, which work because photos outside a track are skipped.
 
 ## Status
 

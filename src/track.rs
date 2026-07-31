@@ -11,9 +11,9 @@
 
 use std::fs::File;
 use std::io::BufReader;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use anyhow::{ensure, Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 use gpx::Waypoint;
 use time::OffsetDateTime;
 
@@ -91,36 +91,37 @@ pub struct Track {
 }
 
 impl Track {
-    pub fn load(path: &Path) -> Result<Self> {
-        let file =
-            File::open(path).with_context(|| format!("opening GPX file {}", path.display()))?;
-        let gpx = gpx::read(BufReader::new(file))
-            .with_context(|| format!("parsing GPX file {}", path.display()))?;
-
+    /// Load one or more GPX files into a single index.
+    ///
+    /// A day's shooting is often split across several tracks — a driving log and
+    /// a separate evening walk, say — and a photo is matched against whichever
+    /// one actually covers its capture time.
+    ///
+    /// **Segment numbering continues across files.** Two files are no more
+    /// bridgeable than two `<trkseg>` runs within one file: a separate track is a
+    /// separate recording session by definition, and nothing is known about the
+    /// path between them. Restarting the counter per file would silently make
+    /// the last point of one file and the first of the next look contiguous.
+    pub fn load(paths: &[PathBuf]) -> Result<Self> {
         let mut points = Vec::new();
+        let mut spans: Vec<(&Path, i64, i64)> = Vec::new();
         let mut segment = 0u32;
 
-        for track in gpx.tracks {
-            for track_segment in track.segments {
-                points.extend(
-                    track_segment
-                        .points
-                        .into_iter()
-                        .filter_map(|waypoint| track_point(waypoint, segment)),
-                );
-                segment += 1;
+        for path in paths {
+            let before = points.len();
+            segment = read_into(path, &mut points, segment)?;
+
+            if let Some(span) = span_of(&points[before..]) {
+                spans.push((path.as_path(), span.0, span.1));
             }
         }
 
-        // Standalone waypoints count as track points too — some loggers write the
-        // whole session that way. They form one more run of their own.
-        points.extend(
-            gpx.waypoints
-                .into_iter()
-                .filter_map(|waypoint| track_point(waypoint, segment)),
-        );
+        ensure_no_overlap(&spans)?;
 
-        Self::new(points).with_context(|| format!("building track index from {}", path.display()))
+        Self::new(points).with_context(|| {
+            let names: Vec<String> = paths.iter().map(|p| p.display().to_string()).collect();
+            format!("building track index from {}", names.join(", "))
+        })
     }
 
     /// Sort and deduplicate into a lookup-ready index.
@@ -200,6 +201,85 @@ fn fix(point: TrackPoint) -> Fix {
         lon: point.lon,
         ele: point.ele,
     }
+}
+
+/// Append every timestamped point from one GPX file, returning the next free
+/// segment id so the caller can keep numbering unique across files.
+fn read_into(path: &Path, points: &mut Vec<TrackPoint>, first_segment: u32) -> Result<u32> {
+    let file = File::open(path).with_context(|| format!("opening GPX file {}", path.display()))?;
+    let gpx = gpx::read(BufReader::new(file))
+        .with_context(|| format!("parsing GPX file {}", path.display()))?;
+
+    let mut segment = first_segment;
+
+    for track in gpx.tracks {
+        for track_segment in track.segments {
+            points.extend(
+                track_segment
+                    .points
+                    .into_iter()
+                    .filter_map(|waypoint| track_point(waypoint, segment)),
+            );
+            segment += 1;
+        }
+    }
+
+    // Standalone waypoints count as track points too — some loggers write the
+    // whole session that way. They form one more run of their own.
+    points.extend(
+        gpx.waypoints
+            .into_iter()
+            .filter_map(|waypoint| track_point(waypoint, segment)),
+    );
+
+    Ok(segment + 1)
+}
+
+/// Earliest and latest timestamp among `points`, or `None` if there are none.
+fn span_of(points: &[TrackPoint]) -> Option<(i64, i64)> {
+    let first = points.iter().map(|p| p.ts).min()?;
+    let last = points.iter().map(|p| p.ts).max()?;
+    Some((first, last))
+}
+
+/// Refuse to merge GPX files whose time ranges overlap.
+///
+/// This is a hard error, not a warning. Two loggers covering the same instant
+/// can disagree about where the subject was, and the index keeps only one point
+/// per timestamp — so which observation survives would come down to the order
+/// the files were listed on the command line. A geotag decided by argument order
+/// is exactly the authoritative-looking wrong answer the project refuses to
+/// produce, and refusing coverage is always the cheaper mistake.
+///
+/// Fires while the track is being built, before any file is scanned or any
+/// sidecar written, so a rejected run leaves nothing behind.
+///
+/// The bound is inclusive: sharing even a single second means two recorded
+/// positions for one instant.
+fn ensure_no_overlap(spans: &[(&Path, i64, i64)]) -> Result<()> {
+    for (i, (path_a, start_a, end_a)) in spans.iter().enumerate() {
+        for (path_b, start_b, end_b) in &spans[i + 1..] {
+            if start_a <= end_b && start_b <= end_a {
+                bail!(
+                    "these GPX files cover overlapping times, so a photo in the overlap \
+                     could resolve to either track:\n  \
+                     {} spans {} to {}\n  \
+                     {} spans {} to {}\n\n\
+                     No sidecars were written. Pass only tracks that do not overlap, or \
+                     run them as separate passes — photos outside a track are skipped, so \
+                     a later pass tags only what the earlier one left alone.",
+                    path_a.display(),
+                    crate::format_utc(*start_a),
+                    crate::format_utc(*end_a),
+                    path_b.display(),
+                    crate::format_utc(*start_b),
+                    crate::format_utc(*end_b),
+                );
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Great-circle distance in meters.
@@ -552,5 +632,160 @@ mod tests {
     fn identical_points_are_zero_meters_apart() {
         let a = point(0, 47.0, -122.0, None);
         assert!(distance_meters(a, a) < 1e-6);
+    }
+
+    // ---- multiple GPX files -------------------------------------------------
+
+    fn span(name: &str, start: i64, end: i64) -> (&Path, i64, i64) {
+        (Path::new(name), start, end)
+    }
+
+    #[test]
+    fn tracks_that_do_not_overlap_are_accepted() {
+        let spans = [
+            span("morning.gpx", 1000, 2000),
+            span("evening.gpx", 2001, 3000),
+        ];
+        assert!(ensure_no_overlap(&spans).is_ok());
+    }
+
+    #[test]
+    fn tracks_sharing_even_one_second_are_rejected() {
+        // Touching endpoints still means two recorded positions for one instant,
+        // and nothing here can say which logger was right.
+        let spans = [span("a.gpx", 1000, 2000), span("b.gpx", 2000, 3000)];
+
+        let error = ensure_no_overlap(&spans).expect_err("2000 belongs to both files");
+        let rendered = format!("{error:#}");
+        assert!(rendered.contains("a.gpx"), "{rendered}");
+        assert!(rendered.contains("b.gpx"), "{rendered}");
+        assert!(
+            rendered.contains("No sidecars were written"),
+            "the error should say nothing was written, got {rendered}"
+        );
+    }
+
+    #[test]
+    fn a_contained_track_is_rejected() {
+        // Full containment is not caught by comparing starts or ends alone.
+        let spans = [span("outer.gpx", 1000, 5000), span("inner.gpx", 2000, 3000)];
+        assert!(ensure_no_overlap(&spans).is_err());
+    }
+
+    #[test]
+    fn overlap_is_detected_whatever_order_the_files_are_given_in() {
+        let forward = [span("a.gpx", 1000, 2500), span("b.gpx", 2000, 3000)];
+        let reversed = [span("b.gpx", 2000, 3000), span("a.gpx", 1000, 2500)];
+
+        assert!(ensure_no_overlap(&forward).is_err());
+        assert!(ensure_no_overlap(&reversed).is_err());
+    }
+
+    #[test]
+    fn overlap_is_checked_across_every_pair_not_just_neighbours() {
+        // The first and last overlap while neither touches the middle one, so a
+        // check that only compared adjacent files would miss this.
+        let spans = [
+            span("a.gpx", 1000, 9000),
+            span("b.gpx", 20_000, 21_000),
+            span("c.gpx", 5000, 6000),
+        ];
+        assert!(ensure_no_overlap(&spans).is_err());
+    }
+
+    /// A scratch directory of its own, removed when the test ends.
+    struct ScratchDir(PathBuf);
+
+    impl ScratchDir {
+        fn new(test_name: &str) -> Self {
+            let dir = std::env::temp_dir()
+                .join(format!("rawgeotag-track-{}-{test_name}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).expect("creating the scratch directory");
+            Self(dir)
+        }
+
+        /// Write a one-segment GPX at the given `HH:MM:SS` times, all at the same
+        /// spot so distance never decides anything the test is asking about.
+        fn gpx(&self, name: &str, times: &[&str]) -> PathBuf {
+            let points: String = times
+                .iter()
+                .map(|t| {
+                    format!(
+                        r#"<trkpt lat="47.0" lon="-122.0"><time>2022-01-01T{t}Z</time></trkpt>"#
+                    )
+                })
+                .collect();
+            let path = self.0.join(name);
+            std::fs::write(
+                &path,
+                format!(
+                    r#"<?xml version="1.0"?><gpx version="1.1" creator="test"><trk><trkseg>{points}</trkseg></trk></gpx>"#
+                ),
+            )
+            .expect("writing the test GPX");
+            path
+        }
+    }
+
+    impl Drop for ScratchDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn several_files_load_into_one_index() {
+        let dir = ScratchDir::new("load-many");
+        let morning = dir.gpx("morning.gpx", &["00:00:00", "00:00:10"]);
+        let evening = dir.gpx("evening.gpx", &["00:01:00", "00:01:10"]);
+
+        let track = Track::load(&[morning, evening]).expect("both files are valid and disjoint");
+
+        assert_eq!(track.point_count(), 4);
+        // The span is the union, from the first file's start to the last's end.
+        assert_eq!(track.span(), (1_640_995_200, 1_640_995_270));
+    }
+
+    #[test]
+    fn the_seam_between_two_files_is_not_interpolated_across() {
+        let dir = ScratchDir::new("seam");
+        let morning = dir.gpx("morning.gpx", &["00:00:00", "00:00:10"]);
+        let evening = dir.gpx("evening.gpx", &["00:01:00", "00:01:10"]);
+
+        let track = Track::load(&[morning, evening]).expect("both files are valid and disjoint");
+
+        // 00:00:30 sits between the two files: 50 s and 0 m apart, so both the
+        // time and distance limits would allow it. Only the segment break stops
+        // it — which is the whole point of continuing segment ids across files.
+        match track.lookup(1_640_995_230, DEFAULT) {
+            Lookup::InGap(gap) => {
+                assert!(
+                    gap.across_segments,
+                    "the seam must read as a segment break, got {gap:?}"
+                );
+                assert!(gap.seconds <= DEFAULT.max_seconds, "{gap:?}");
+                assert!(gap.meters <= DEFAULT.max_meters, "{gap:?}");
+            }
+            other => panic!("expected InGap across the file seam, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn loading_overlapping_files_fails_before_a_track_is_built() {
+        let dir = ScratchDir::new("overlap");
+        let first = dir.gpx("first.gpx", &["00:00:00", "00:01:00"]);
+        let second = dir.gpx("second.gpx", &["00:00:30", "00:02:00"]);
+
+        // Not `expect_err`: that needs `Track: Debug`, and deriving it would mean
+        // any failure elsewhere dumps every point in a real track.
+        let error = match Track::load(&[first, second]) {
+            Err(error) => error,
+            Ok(_) => panic!("the two files overlap and must be rejected"),
+        };
+
+        let rendered = format!("{error:#}");
+        assert!(rendered.contains("overlapping"), "{rendered}");
+        assert!(rendered.contains("No sidecars were written"), "{rendered}");
     }
 }

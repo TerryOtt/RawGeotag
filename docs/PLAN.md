@@ -53,11 +53,11 @@ No remote is configured — this is a local repository unless a GitHub remote is
 ## CLI
 
 ```
-rawgeotag <DIR> <EXT> <GPX> [OPTIONS]
+rawgeotag <DIR> <EXT> <GPX>... [OPTIONS]
 
   DIR    parent directory, searched recursively
   EXT    raw extension, e.g. "cr3" (case-insensitive, leading "." tolerated)
-  GPX    path to the GPX track file
+  GPX    path to a GPX track file; repeat for a day split across several tracks
 
   --utc-offset <±HHMM>     offset for files with no EXIF timezone, e.g. -0700, +0430
   --max-gap <SECONDS>      refuse to interpolate across a longer hole [default: 60]
@@ -233,6 +233,8 @@ Resolution rule (**EXIF wins, warn on conflict**):
 Convert the resolved `DateTime<FixedOffset>` with `.timestamp()` and hand off an `i64`. A file with no usable capture tag is skipped with a warning.
 
 ## track.rs — GPX and interpolation
+
+> **Extended 2026-07-31: several GPX files may be given** (`<GPX>...`), for a day split across a driving log and an evening walk. They are flattened into one index, with two rules that keep the merge honest. **Segment numbering continues across files**, so the seam between two files is a segment break and is never interpolated across — restarting the counter per file would make the last point of one and the first of the next look contiguous. **Overlapping time ranges are a hard error**, raised while the index is built and so before any sidecar is written: two tracks covering one instant can disagree, only one point per timestamp survives, and the survivor would be chosen by argument order. The bound is inclusive — one shared second is an overlap. The remedy is separate passes, which work because photos outside a track are skipped.
 
 Load once at startup, before *Phase A*. Flatten every `track.segments[].points[]` plus standalone `gpx.waypoints` into one `Vec<TrackPoint { ts: i64, lat: f64, lon: f64, ele: Option<f64>, segment: u32 }>`, dropping points with no timestamp, then sort by `ts` and dedupe. (`segment` postdates the original design — it identifies the contiguous recording run a point came from, and is what lets the reversed gap rule below refuse to bridge a `<trkseg>` break.) After construction it is immutable and freely shared across threads.
 

@@ -67,8 +67,9 @@ struct Args {
     /// Raw extension, e.g. "cr3" (case-insensitive, leading "." tolerated)
     ext: String,
 
-    /// Path to the GPX track file
-    gpx: PathBuf,
+    /// Path to the GPX track file. Repeat for a day split across several tracks
+    #[arg(required = true, num_args = 1..)]
+    gpx: Vec<PathBuf>,
 
     /// Offset for files with no EXIF timezone, e.g. -0700, +0430
     #[arg(long, value_name = "±HHMM", allow_hyphen_values = true, value_parser = parse_utc_offset)]
@@ -146,9 +147,13 @@ fn run() -> Result<Outcome> {
     let track = Track::load(&args.gpx)?;
     let (track_start, track_end) = track.span();
     if args.verbose {
+        // The span is the union of every file given. It is not a claim of
+        // continuous coverage — holes between the tracks are still holes, and a
+        // photo falling in one is skipped like any other gap.
         println!(
-            "Track: {} points, {} to {}",
+            "Track: {} points from {} file(s), {} to {}",
             track.point_count(),
+            args.gpx.len(),
             format_utc(track_start),
             format_utc(track_end)
         );
