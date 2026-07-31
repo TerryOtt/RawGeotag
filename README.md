@@ -42,14 +42,14 @@ rawgeotag <DIR> <EXT> <GPX> [OPTIONS]
   EXT    raw extension, e.g. "cr3" (case-insensitive, leading "." tolerated)
   GPX    path to the GPX track file
 
-  --utc-offset <±HHMM>  offset for files with no EXIF timezone, e.g. -0700
-  --max-gap <SECONDS>   refuse to interpolate across a longer hole [default: 60]
-  --max-distance <M>    refuse to interpolate across a wider hole [default: 100]
-  --force               overwrite existing sidecars (default: skip with a warning)
-  --dry-run             do all work, write nothing
-  -j, --jobs <N>        worker threads (default: 2; raise for network storage)
-      --no-progress     suppress the progress bar
-  -v, --verbose         per-file detail
+  --utc-offset <±HHMM>     offset for files with no EXIF timezone, e.g. -0700
+  --max-gap <SECONDS>      refuse to interpolate across a longer hole [default: 60]
+  --max-distance <METERS>  refuse to interpolate across a wider hole [default: 100]
+  --force                  overwrite existing sidecars (default: skip with a warning)
+  --dry-run                do all work, write nothing
+  -j, --jobs <N>           worker threads (default: 2; raise for network storage)
+      --no-progress        suppress the progress bar
+  -v, --verbose            per-file detail
 ```
 
 Example:
