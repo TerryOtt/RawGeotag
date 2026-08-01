@@ -83,6 +83,56 @@ different thing from adding a rail on top of it. If you find yourself proposing 
 guard so you can be trusted with `--force`, the answer is that you are not supposed
 to be trusted with it.
 
+### The NAS guard — 5 and 6 are enforced, not merely written down
+
+A **`PreToolUse` hook on `Bash|PowerShell`** refuses destructive commands aimed at
+the shares. It exists because the protection used to depend on which tool you
+reached for: PowerShell's built-in system-path guard blocked `Remove-Item` on `N:\`
+while `rm -rf` through Bash sailed straight past.
+
+| Target | Decision |
+|---|---|
+| `Q:\` | **deny** — hard block, no prompt |
+| `N:\` | **ask** — Terry approves each one |
+| anywhere else | untouched |
+
+- **Script** `~/.claude/hooks/nas-guard.py`, **wired in** `~/.claude/settings.json`.
+- **Both are user-global, not in this repo.** The guard follows the drives into
+  every project, and it is *not* version-controlled here — a fresh machine, or
+  anyone else's clone, has no guard at all. **Constraints 5 and 6 bind you whether
+  or not the hook is running.** It is a backstop against a slip, never the reason
+  the rules hold.
+- **Deliberately unguarded: `cp` / `Copy-Item`.** Staging a working set from `Q:\`
+  to `N:\` is the documented workflow and destroys nothing; guarding it would make
+  the fast path prompt constantly for no gain.
+- **A harness rule, which is exactly why it is permitted.** It lives in Claude
+  Code's config, not in `rawgeotag` — the distinction the paragraph above draws.
+  Constraining *the operator* is the point; constraining *the tool* would take
+  capability away from Terry.
+
+**Known limitation, deliberately not fixed.** It matches the whole command string,
+so it cannot tell which path a verb applies to, and it cannot tell a command from
+data that merely looks like one. Two consequences you will actually hit:
+
+- A compound command is judged as a whole. Reading from the archive in the same
+  line as an unrelated delete elsewhere is refused. Run them separately.
+- **Writing *about* the guard trips the guard.** A heredoc is part of the command
+  string, so a commit message describing a deletion on these drives is itself
+  refused — which is how this very entry got blocked on its first commit. Put the
+  message in a file and use `git commit -F <file>`; the `Write` tool is not matched
+  by the hook.
+
+Do not "improve" either of these by pairing verbs to arguments or by stripping
+heredoc bodies before matching. Shell quoting, pipelines and splatting make the
+first guesswork, and the second opens a real hole — `<<EOF ... EOF | sh` is a
+command wearing data's clothing. **A guard that is subtly wrong is worse than one
+that is bluntly right, and friction against Claude is not a reason to weaken it.**
+
+To confirm it is still live, probe with a path that does not exist, so the command
+is a no-op even if the hook is inert: `rm -f "/q/__probe__"` must be refused, and so
+must `Remove-Item "Q:\__probe__"`. Both spellings matter — testing only one is how
+the inconsistency went unnoticed in the first place.
+
 ## Execution shape: two phases with a gate between them
 
 **The phase boundary is not where the progress bars suggest.** They read `reading
