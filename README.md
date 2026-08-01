@@ -134,6 +134,11 @@ cargo test
 
 The binary lands at `target/release/rawgeotag` (`rawgeotag.exe` on Windows).
 
+Dependencies are refreshed deliberately rather than continuously — the intended cadence
+is once before each trip, so anything surprising surfaces at home rather than on the
+road. [`docs/UPDATING.md`](docs/UPDATING.md) has the process, including the `0.x` version
+ceiling that makes a clean `cargo update` a poor indicator of being current.
+
 ## Usage
 
 ```
