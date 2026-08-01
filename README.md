@@ -17,8 +17,44 @@ for, and the only one a conflict is resolved in favour of. See
 [XMP sidecars](#xmp-sidecars-and-who-they-are-written-for) for what that does and does
 not promise.
 
-**Raw files are never modified.** All output goes to sidecars, so the whole
-operation is reversible by deleting the generated `.xmp` files.
+## Do no harm
+
+**This is the project's second goal after tagging accurately, and it constrains the
+first.** A geotagging pass runs unattended over thousands of irreplaceable files, so it
+is designed to be incapable of quietly costing you something.
+
+**Raw files are never modified.** All output goes to sidecars, so the whole operation is
+reversible by deleting the generated `.xmp` files.
+
+**Photos that already have a sidecar are skipped, with a warning.** Never merged, never
+partially updated. This matters more than it sounds, because a sidecar is not just a
+geotag — once Lightroom has written one it holds develop settings, keywords, ratings,
+labels and crop data, **none of which exist anywhere else.** They are not derived from
+the raw and cannot be regenerated from it. A missing geotag is an afternoon; a lost
+develop history is years.
+
+That is also why the intended order is **geotag first, import second**: run this before
+Lightroom has written anything and there is simply nothing of Lightroom's to collide
+with.
+
+### About `--force`
+
+`--force` overwrites existing sidecars **wholesale** — it does not merge, and whatever
+was in the file is gone. It exists because it is occasionally the right tool, and it is
+not going to be softened with a confirmation prompt or a heuristic about whose file it
+is; a destructive flag that sometimes declines to be destructive is worse than one that
+is honest about it.
+
+**But be clear-eyed about what reaching for it usually means.** If you are pointing
+`--force` at a real photo library, that is the shape of a bad day — the failure mode is
+silent, immediate and unrecoverable, and there is no undo. The overwhelmingly common
+case where someone wants it, re-running a pass to get different results, is better
+served by **copying the photos to a temp directory and working there.** Nothing about
+this tool's output depends on where the raws live, so a scratch copy costs you a copy
+and nothing else.
+
+If you genuinely mean it — you wrote the sidecars, you know what is in them, you want
+them replaced — `--force` is right there and will do exactly what you asked.
 
 ## Status
 
@@ -134,7 +170,8 @@ need a different one. See the Format extensibility section of the plan.
   distance limit rejects that. This follows the project's guiding rule — **a geotag
   off by more than 5 m is worse than no geotag at all.**
 - **Existing sidecars** are skipped with a warning. `--force` overwrites them
-  wholesale, discarding any develop settings or keywords another tool stored there.
+  wholesale, discarding any develop settings, keywords or crops another tool stored
+  there — read [Do no harm](#do-no-harm) before using it.
 - **Exit code** is non-zero if any file errored or the run was gated; deliberate
   skips are still a clean exit.
 
@@ -175,9 +212,9 @@ it. If some other tool wants a different spelling of the same data, that is a
 compatibility request, not a bug in this one. See
 [`docs/LIGHTROOM-XMP.md`](docs/LIGHTROOM-XMP.md) for the comparison method and results.
 
-Note also that this tool **skips any photo that already has a sidecar** (unless
-`--force`). That is what makes the geotag-then-import order the safe one: run it before
-Lightroom has written anything, and there is nothing of Lightroom's to collide with.
+This is also the reason a Lightroom sidecar is never touched once it exists — see
+[Do no harm](#do-no-harm) for what those files hold and why `--force` deserves more
+thought than it looks like it needs.
 
 ## Performance
 
@@ -251,6 +288,9 @@ writes, that set the wall clock.
 
 ## Design constraints
 
+- **Do no harm.** Raws are never touched, existing sidecars are never merged or
+  partially written, and the only destructive operation is one you have to ask for by
+  name — see [Do no harm](#do-no-harm).
 - **Pure Rust.** No ExifTool, no C-library bindings. (ExifTool is used only as a
   verification oracle by hand; it appears nowhere in shipped code.)
 - **Fast.** Optimize for wall-clock time. The work is parallel by design, but more
