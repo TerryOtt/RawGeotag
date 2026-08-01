@@ -252,8 +252,8 @@ bug.
 
 nom-exif returns CR3 `DateTimeOriginal` as **`Naive`** and exposes
 `OffsetTimeOriginal` as a **separate `Text` entry** (`"+00:00"` on the 2025 Malta
-files, `"+01:00"` on the 2022 Rockies ones — the offset is a per-trip camera setting,
-so never hardcode or assume it). It never merges them.
+files, `"+01:00"` on the 2022 Rockies ones — see *Whose clock is it* below before
+assuming what that variation means). It never merges them.
 It *does* merge them for JPEG. So `ExifDateTime::aware()` is always `None` on CR3,
 and any code that trusts `.aware()` alone will gate every single Canon raw as
 "no timezone" — which is exactly what happened on the first real-data run.
@@ -270,6 +270,22 @@ None of that was visible from the crate's documentation — only from real files
 Beware also that ExifTool reports CR3 `CreateDate` in *local machine time* from the
 BMFF container, which differs from the EXIF `DateTimeOriginal`. Compare against
 `DateTimeOriginal`, not `CreateDate`, when sanity-checking by hand.
+
+### Whose clock is it — expect UTC, verify anyway
+
+**Terry sets every camera to UTC deliberately. A non-zero offset is a slip, not a
+decision.** The 2022 Rockies `+01:00` is London on BST — in his words, "sometimes I
+do shit like set it to London time with daylight savings on, which screws things up
+just enough to be annoying."
+
+Two things follow, and they pull in opposite directions, which is why both are here.
+**Operationally:** expect `+00:00`, but never rely on it — a wrong offset is exactly
+the silent whole-shoot displacement the mantra exists to prevent, and it is worth
+*mentioning* a non-zero offset to him rather than quietly honouring it, because it
+may be a mistake he would want to know about. **For the code:** do not narrow
+anything to match this habit. Other photographers legitimately shoot on local time,
+so the rule in `choose_offset` — EXIF wins, `--utc-offset` fills in, neither refuses
+the run — is right for both and should stay as it is.
 
 ## NEF, and why `read_strategy` exists
 
