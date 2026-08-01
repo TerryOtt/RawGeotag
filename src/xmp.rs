@@ -16,7 +16,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use chrono::DateTime;
+use chrono::{DateTime, Utc};
 use tempfile::NamedTempFile;
 
 use crate::track::Fix;
@@ -26,12 +26,13 @@ pub fn sidecar_path(raw: &Path) -> PathBuf {
     raw.with_extension("xmp")
 }
 
-/// Render the sidecar for one photo. `captured` is the capture instant in Unix
-/// seconds; it is written to the packet as UTC.
-pub fn render(fix: &Fix, captured: i64) -> Result<String> {
-    let captured_utc = DateTime::from_timestamp(captured, 0)
-        .context("capture timestamp is outside the representable range")?;
-    let stamp = captured_utc.format("%Y-%m-%dT%H:%M:%SZ");
+/// Render the sidecar for one photo.
+///
+/// Infallible: `captured` is already an absolute instant, so there is no
+/// out-of-range timestamp left to reject. It used to take Unix seconds, which
+/// meant carrying an error case for a value that could not be converted back.
+pub fn render(fix: &Fix, captured: DateTime<Utc>) -> String {
+    let stamp = captured.format("%Y-%m-%dT%H:%M:%SZ");
 
     // Omitted entirely rather than defaulted when the track has no elevation.
     let altitude = match fix.ele {
@@ -44,7 +45,7 @@ pub fn render(fix: &Fix, captured: i64) -> Result<String> {
     };
 
     // Written as a raw string so the packet's real shape is visible in the source.
-    Ok(format!(
+    format!(
         r#"<?xpacket begin="{bom}" id="W5M0MpCehiHzreSzNTczkc9d"?>
 <x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="rawgeotag {version}">
  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
@@ -63,7 +64,7 @@ pub fn render(fix: &Fix, captured: i64) -> Result<String> {
         version = env!("CARGO_PKG_VERSION"),
         latitude = encode_coordinate(fix.lat, 'N', 'S'),
         longitude = encode_coordinate(fix.lon, 'E', 'W'),
-    ))
+    )
 }
 
 /// Write the packet so an interrupted run cannot leave a half-written sidecar.
@@ -138,6 +139,11 @@ mod tests {
 
     use super::*;
 
+    /// A fixed instant for the packet tests: 2026-07-28T18:42:03Z.
+    fn captured() -> DateTime<Utc> {
+        DateTime::from_timestamp(1_785_264_123, 0).expect("a representable test instant")
+    }
+
     #[test]
     fn sidecar_replaces_the_extension() {
         assert_eq!(
@@ -186,7 +192,7 @@ mod tests {
             ele: Some(123.456),
         };
         // 2026-07-28T18:42:03Z
-        let packet = render(&fix, 1_785_264_123).expect("timestamp is representable");
+        let packet = render(&fix, captured());
 
         assert!(
             packet.contains(r#"exif:GPSLatitude="47,26.7305N""#),
@@ -216,7 +222,7 @@ mod tests {
             lon: -122.3352833,
             ele: None,
         };
-        let packet = render(&fix, 1_785_264_123).expect("timestamp is representable");
+        let packet = render(&fix, captured());
 
         assert!(!packet.contains("GPSAltitude"), "{packet}");
         assert!(
@@ -232,7 +238,7 @@ mod tests {
             lon: 35.5,
             ele: Some(-420.5),
         };
-        let packet = render(&fix, 1_785_264_123).expect("timestamp is representable");
+        let packet = render(&fix, captured());
 
         assert!(
             packet.contains(r#"exif:GPSAltitude="420500/1000""#),

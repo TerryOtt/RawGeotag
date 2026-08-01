@@ -27,7 +27,7 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 use anyhow::{bail, Context, Result};
-use chrono::FixedOffset;
+use chrono::{DateTime, FixedOffset, TimeDelta, Utc};
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use nom_exif::MediaParser;
@@ -84,7 +84,7 @@ struct Args {
     utc_offset: Option<FixedOffset>,
 
     /// Refuse to interpolate across a hole longer than this many seconds
-    #[arg(long, value_name = "SECONDS", default_value_t = GapLimits::DEFAULT.max_seconds)]
+    #[arg(long, value_name = "SECONDS", default_value_t = GapLimits::DEFAULT_GAP_SECONDS)]
     max_gap: i64,
 
     /// Refuse to interpolate across a hole wider than this many meters
@@ -210,13 +210,13 @@ fn run() -> Result<Outcome> {
         match extraction {
             Extraction::Resolved {
                 path,
-                ts,
+                captured,
                 conflict_warning,
             } => {
                 if let Some(warning) = conflict_warning {
                     warnings.push((path.clone(), warning));
                 }
-                photos.push(Photo { path, ts });
+                photos.push(Photo { path, captured });
             }
             Extraction::NoCaptureTime { path } => {
                 no_capture_time += 1;
@@ -321,7 +321,7 @@ fn run() -> Result<Outcome> {
 /// A file that made it through Phase A with an absolute capture instant.
 struct Photo {
     path: PathBuf,
-    ts: i64,
+    captured: DateTime<Utc>,
 }
 
 /// Phase A's per-file result. Diagnostics travel in the value rather than being
@@ -329,7 +329,7 @@ struct Photo {
 enum Extraction {
     Resolved {
         path: PathBuf,
-        ts: i64,
+        captured: DateTime<Utc>,
         conflict_warning: Option<String>,
     },
     NeedsOffset {
@@ -351,9 +351,9 @@ fn extract(
     utc_offset: Option<FixedOffset>,
 ) -> Extraction {
     match raw::capture_time(parser, path, format, utc_offset) {
-        Ok(Capture::Resolved { ts, conflict }) => Extraction::Resolved {
+        Ok(Capture::Resolved { at, conflict }) => Extraction::Resolved {
             path: path.to_path_buf(),
-            ts,
+            captured: at,
             conflict_warning: conflict.map(|conflict| {
                 format!(
                     "EXIF timezone {} disagrees with --utc-offset {}; using the EXIF value",
@@ -397,12 +397,14 @@ fn write_one(photo: &Photo, track: &Track, args: &Args) -> Written {
 }
 
 fn write_sidecar(photo: &Photo, track: &Track, args: &Args) -> WrittenKind {
+    // `--max-gap` is seconds on the command line and a `TimeDelta` everywhere
+    // inside; this is the only place the two meet.
     let limits = GapLimits {
-        max_seconds: args.max_gap,
+        max_gap: TimeDelta::seconds(args.max_gap),
         max_meters: args.max_distance,
     };
 
-    let fix = match track.lookup(photo.ts, limits) {
+    let fix = match track.lookup(photo.captured, limits) {
         Lookup::Found(fix) => fix,
         Lookup::OutsideTrack => return WrittenKind::OutsideTrack,
         Lookup::InGap(gap) => {
@@ -414,7 +416,7 @@ fn write_sidecar(photo: &Photo, track: &Track, args: &Args) -> WrittenKind {
             return WrittenKind::InGap {
                 description: format!(
                     "falls in a track gap of {}s / {} m{reason}",
-                    thousands(gap.seconds),
+                    thousands(gap.duration.num_seconds()),
                     thousands(gap.meters.round() as i64)
                 ),
             };
@@ -426,14 +428,7 @@ fn write_sidecar(photo: &Photo, track: &Track, args: &Args) -> WrittenKind {
         return WrittenKind::SidecarExists;
     }
 
-    let packet = match xmp::render(&fix, photo.ts) {
-        Ok(packet) => packet,
-        Err(error) => {
-            return WrittenKind::Failed {
-                error: format!("{error:#}"),
-            }
-        }
-    };
+    let packet = xmp::render(&fix, photo.captured);
 
     // --dry-run still does every bit of work above, so it exercises the same code
     // paths and reports the same counts; it just stops before touching the disk.
@@ -627,10 +622,12 @@ fn thousands(value: i64) -> String {
     out
 }
 
-fn format_utc(ts: i64) -> String {
-    chrono::DateTime::from_timestamp(ts, 0)
-        .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())
-        .unwrap_or_else(|| format!("{ts} (unrepresentable)"))
+/// The one timestamp format the tool prints, so every report reads the same.
+///
+/// Infallible now that instants are `DateTime<Utc>`; it previously needed a
+/// fallback branch for a Unix second that could not be converted back.
+fn format_utc(at: DateTime<Utc>) -> String {
+    at.format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
 /// Parse `±HHMM`, also tolerating `±HH:MM`. Shares its implementation with the
@@ -678,7 +675,7 @@ mod tests {
         let extractions = vec![
             Extraction::Resolved {
                 path: PathBuf::from("/photos/a.cr3"),
-                ts: 1000,
+                captured: DateTime::from_timestamp(1000, 0).expect("a valid test instant"),
                 conflict_warning: None,
             },
             Extraction::NoCaptureTime {
@@ -701,7 +698,7 @@ mod tests {
             needs_offset("/photos/c.cr3"),
             Extraction::Resolved {
                 path: PathBuf::from("/photos/z.cr3"),
-                ts: 1000,
+                captured: DateTime::from_timestamp(1000, 0).expect("a valid test instant"),
                 conflict_warning: None,
             },
             needs_offset("/photos/a.cr3"),

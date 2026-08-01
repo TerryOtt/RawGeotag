@@ -85,8 +85,8 @@ Positional order follows the original spec. `--utc-offset` is a flag rather than
 | `gpx` | 0.10 | GPX parsing |
 | `rayon` | 1 | data parallelism |
 | `indicatif` | 0.18 | thread-safe progress bar |
-| `chrono` | 0.4 | EXIF-side time (already nom-exif's public type) |
-| `time` | 0.3 | GPX-side time (already gpx's public type) |
+| `chrono` | 0.4 | **the program's internal time type** — `DateTime<Utc>` and `TimeDelta`; also nom-exif's public type |
+| `time` | 0.3 | gpx's public type only; converted to chrono in `track_point` and used nowhere else |
 | `tempfile` | 3 | atomic sidecar writes — unique temp names, cleanup on drop |
 | `anyhow` | 1 | error context |
 
@@ -94,7 +94,13 @@ These versions are indicative of what the design was written against, not a stat
 
 **This list has been audited against the alternatives, and the rebuttals live in the code, not here.** The obvious "why didn't you use X?" for each spot is answered at the site that invites the question, where it cannot drift away from what it describes: `Cargo.toml` for `nom-exif` over the far more popular `kamadak-exif` (which cannot read CR3 at any version) and for why two time crates is not sloppiness; `track.rs` for hand-rolled haversine over `geo`; `xmp.rs` for a format template over `xmp-writer`; `raw.rs` for the offset parser; `format.rs` for `rawler`. Read those before proposing a swap.
 
-Two time crates appear because they are the public types of two upstream crates. Do **not** write conversions between them — normalize both sides to `i64` Unix seconds at the boundary (`chrono::DateTime::timestamp()`, `time::OffsetDateTime::unix_timestamp()`) and do all correlation arithmetic in that single scalar domain.
+Two time crates appear because they are the public types of two upstream crates.
+
+> **Reversed (2026-08-01). The original rule here was: "do not write conversions between them — normalize both sides to `i64` Unix seconds and do all correlation arithmetic in that single scalar domain."** It worked, but it was the wrong trade. A bare `i64` says nothing about unit, epoch or zone; instants and durations were the same type, so passing a duration where an instant belonged compiled fine; and it *manufactured* two error paths — `xmp::render` had to reject a Unix second it could not convert back, and `format_utc` needed an "(unrepresentable)" fallback — for states that cannot arise once the value is already a `DateTime`.
+>
+> **The rule now: `chrono::DateTime<Utc>` for instants, `chrono::TimeDelta` for durations, everywhere inside the program.** chrono is the one we depend on directly and the one `nom-exif` already hands us, so the EXIF side stops converting at all. `gpx`'s `time::OffsetDateTime` is converted in exactly one function, `track_point` in `track.rs`, and the *number* of conversions is what the original rule was really trying to keep at zero — one, at a named boundary, is not the sprawl it was guarding against.
+>
+> Both error paths are gone: `xmp::render` is now infallible. `--max-gap` stays a count of seconds on the command line, since that is the right interface for a user, and becomes a `TimeDelta` immediately (`GapLimits::DEFAULT_GAP_SECONDS` is the single place those meet).
 
 ## Module layout
 
@@ -243,13 +249,13 @@ Resolution rule (**EXIF wins, warn on conflict**):
 2. Resolve with `.or_offset(cli_offset)` — attaches the fallback only to `Naive` values, returns `Aware` values untouched. This is the whole precedence rule in one call.
 3. `Naive` with no `--utc-offset` → the gate condition above.
 
-Convert the resolved `DateTime<FixedOffset>` with `.timestamp()` and hand off an `i64`. A file with no usable capture tag is skipped with a warning.
+Shift the resolved `DateTime<FixedOffset>` to UTC with `.with_timezone(&Utc)` and hand off a `DateTime<Utc>` — a change of representation, not of instant. A file with no usable capture tag is skipped with a warning.
 
 ## track.rs — GPX and interpolation
 
 > **Extended 2026-07-31: several GPX files may be given** (`<GPX>...`), for a day split across a driving log and an evening walk. They are flattened into one index, with two rules that keep the merge honest. **Segment numbering continues across files**, so the seam between two files is a segment break and is never interpolated across — restarting the counter per file would make the last point of one and the first of the next look contiguous. **Overlapping time ranges are a hard error**, raised while the index is built and so before any sidecar is written: two tracks covering one instant can disagree, only one point per timestamp survives, and the survivor would be chosen by argument order. The bound is inclusive — one shared second is an overlap. The remedy is separate passes, which work because photos outside a track are skipped.
 
-Load once at startup, before *Phase A*. Flatten every `track.segments[].points[]` plus standalone `gpx.waypoints` into one `Vec<TrackPoint { ts: i64, lat: f64, lon: f64, ele: Option<f64>, segment: u32 }>`, dropping points with no timestamp, then sort by `ts` and dedupe. (`segment` postdates the original design — it identifies the contiguous recording run a point came from, and is what lets the reversed gap rule below refuse to bridge a `<trkseg>` break.) After construction it is immutable and freely shared across threads.
+Load once at startup, before *Phase A*. Flatten every `track.segments[].points[]` plus standalone `gpx.waypoints` into one `Vec<TrackPoint { at: DateTime<Utc>, lat: f64, lon: f64, ele: Option<f64>, segment: u32 }>`, dropping points with no timestamp, then sort by `at` and dedupe. (`segment` postdates the original design — it identifies the contiguous recording run a point came from, and is what lets the reversed gap rule below refuse to bridge a `<trkseg>` break.) After construction it is immutable and freely shared across threads.
 
 Look up by `slice::binary_search_by_key(&ts, |p| p.ts)`:
 - exact hit → use that point

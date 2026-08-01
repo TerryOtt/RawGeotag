@@ -9,8 +9,9 @@ license = "MIT"
 anyhow = "1"
 # `chrono` and `time` are both here because neither is our choice: `nom-exif`
 # returns chrono types and `gpx` returns time types, so both arrive at the API
-# boundary. `track.rs` normalizes each to Unix seconds there rather than
-# converting between the two time crates.
+# boundary. chrono is the one the program actually speaks — `DateTime<Utc>` for
+# instants, `TimeDelta` for durations — since nom-exif hands us those for free.
+# `gpx`'s type is converted in exactly one function, `track_point` in track.rs.
 chrono = "0.4"
 clap = { version = "4", features = ["derive"] }
 gpx = "0.10"

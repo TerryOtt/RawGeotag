@@ -8,16 +8,16 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use chrono::FixedOffset;
+use chrono::{DateTime, FixedOffset, Utc};
 use nom_exif::{Error as ExifError, Exif, MediaParser, MediaSource};
 
 use crate::format::{RawFormat, ReadStrategy};
 
 /// What reading one file's capture time produced.
 pub enum Capture {
-    /// Resolved to an absolute instant, in Unix seconds.
+    /// Resolved to an absolute instant.
     Resolved {
-        ts: i64,
+        at: DateTime<Utc>,
         /// Set when EXIF and `--utc-offset` disagree. The EXIF value is used
         /// regardless; this is only reported.
         conflict: Option<OffsetConflict>,
@@ -145,8 +145,9 @@ pub fn capture_time(
 
     Ok(Capture::Resolved {
         // `or_offset` attaches the offset only to naive values and returns aware
-        // ones untouched, so an already-aware datetime keeps its own zone.
-        ts: datetime.or_offset(offset).timestamp(),
+        // ones untouched, so an already-aware datetime keeps its own zone. The
+        // shift to UTC is then a pure change of representation, not of instant.
+        at: datetime.or_offset(offset).with_timezone(&Utc),
         conflict,
     })
 }

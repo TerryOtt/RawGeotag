@@ -20,18 +20,21 @@ use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, ensure, Context, Result};
+use chrono::{DateTime, TimeDelta, Utc};
 use gpx::Waypoint;
 use rayon::prelude::*;
 use time::OffsetDateTime;
 
 /// One timestamped position from the track.
 ///
-/// Times are Unix seconds: `gpx` speaks `time::OffsetDateTime` and `nom-exif`
-/// speaks `chrono::DateTime`, so both sides normalize to this one scalar domain
-/// at the boundary rather than converting between the two time crates.
+/// Instants are `chrono::DateTime<Utc>` throughout. Two upstream crates disagree
+/// about time types — `gpx` returns `time::OffsetDateTime`, `nom-exif` returns
+/// `chrono` — and chrono wins because it is the one *we* already depend on
+/// directly and the one nom-exif hands us for free. `gpx`'s type is converted at
+/// exactly one place, `track_point` below.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TrackPoint {
-    pub ts: i64,
+    pub at: DateTime<Utc>,
     pub lat: f64,
     pub lon: f64,
     pub ele: Option<f64>,
@@ -54,23 +57,30 @@ pub struct Fix {
 /// How far apart bracketing points may be and still be interpolated between.
 #[derive(Debug, Clone, Copy)]
 pub struct GapLimits {
-    pub max_seconds: i64,
+    pub max_gap: TimeDelta,
     pub max_meters: f64,
 }
 
 impl GapLimits {
     /// The shipped defaults, and the single place they are written down.
     ///
-    /// `--max-gap` and `--max-distance` take their `default_value_t` from these
-    /// fields, and the tests below exercise the same value, so the tool and its
-    /// tests cannot drift apart the way a hand-copied constant would.
+    /// `--max-gap` and `--max-distance` take their `default_value_t` from
+    /// `DEFAULT_GAP_SECONDS` and `DEFAULT.max_meters`, and the tests below
+    /// exercise the same values, so the tool and its tests cannot drift apart the
+    /// way a hand-copied constant would.
     ///
     /// Both limits are load-bearing and neither implies the other — see the gap
     /// rule in CLAUDE.md before changing either.
     pub const DEFAULT: Self = Self {
-        max_seconds: 60,
+        max_gap: TimeDelta::seconds(Self::DEFAULT_GAP_SECONDS),
         max_meters: 100.0,
     };
+
+    /// The gap limit in whole seconds, for the CLI.
+    ///
+    /// `--max-gap` is a number of seconds to the user and a `TimeDelta` to the
+    /// rest of the code; this is the one place the two representations meet.
+    pub const DEFAULT_GAP_SECONDS: i64 = 60;
 }
 
 /// Why a lookup did not produce a position, or the position it produced.
@@ -86,7 +96,7 @@ pub enum Lookup {
 /// The hole a photo fell into, kept for reporting so the skip can be explained.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Gap {
-    pub seconds: i64,
+    pub duration: TimeDelta,
     pub meters: f64,
     /// The bracketing points come from different recording runs.
     pub across_segments: bool,
@@ -121,7 +131,7 @@ impl Track {
             paths.par_iter().map(|path| read_file(path)).collect();
 
         let mut points = Vec::new();
-        let mut spans: Vec<(&Path, i64, i64)> = Vec::new();
+        let mut spans: Vec<(&Path, DateTime<Utc>, DateTime<Utc>)> = Vec::new();
         let mut next_segment = 0u32;
 
         for (path, parsed) in paths.iter().zip(parsed) {
@@ -158,8 +168,8 @@ impl Track {
 
     /// Sort and deduplicate into a lookup-ready index.
     pub fn new(mut points: Vec<TrackPoint>) -> Result<Self> {
-        points.sort_by_key(|point| point.ts);
-        points.dedup_by_key(|point| point.ts);
+        points.sort_by_key(|point| point.at);
+        points.dedup_by_key(|point| point.at);
 
         ensure!(
             !points.is_empty(),
@@ -173,19 +183,19 @@ impl Track {
         self.points.len()
     }
 
-    /// The track's time span, as inclusive Unix seconds.
-    pub fn span(&self) -> (i64, i64) {
+    /// The track's time span, inclusive of both ends.
+    pub fn span(&self) -> (DateTime<Utc>, DateTime<Utc>) {
         // `new` rejects an empty track, so both ends exist.
         let ends = (self.points.first(), self.points.last());
         match ends {
-            (Some(first), Some(last)) => (first.ts, last.ts),
+            (Some(first), Some(last)) => (first.at, last.at),
             _ => unreachable!("Track::new rejects an empty track"),
         }
     }
 
-    /// Position at `ts`, if the track genuinely supports one there.
-    pub fn lookup(&self, ts: i64, limits: GapLimits) -> Lookup {
-        match self.points.binary_search_by_key(&ts, |point| point.ts) {
+    /// Position at `at`, if the track genuinely supports one there.
+    pub fn lookup(&self, at: DateTime<Utc>, limits: GapLimits) -> Lookup {
+        match self.points.binary_search_by_key(&at, |point| point.at) {
             // An exact hit is a recorded observation, not an interpolation, so no
             // gap test applies.
             Ok(i) => Lookup::Found(fix(self.points[i])),
@@ -194,32 +204,37 @@ impl Track {
                 let (before, after) = (self.points[i - 1], self.points[i]);
 
                 let gap = Gap {
-                    seconds: after.ts - before.ts,
+                    duration: after.at - before.at,
                     meters: distance_meters(before, after),
                     across_segments: before.segment != after.segment,
                 };
 
                 if gap.across_segments
-                    || gap.seconds > limits.max_seconds
+                    || gap.duration > limits.max_gap
                     || gap.meters > limits.max_meters
                 {
                     Lookup::InGap(gap)
                 } else {
-                    Lookup::Found(interpolate(before, after, ts))
+                    Lookup::Found(interpolate(before, after, at))
                 }
             }
         }
     }
 }
 
+/// The one place `gpx`'s time type crosses into ours.
+///
+/// `time::OffsetDateTime` in, `chrono::DateTime<Utc>` out, via the Unix epoch —
+/// which both crates agree on, so nothing is lost. Keeping the conversion to this
+/// single function is what stops the two time crates from spreading.
 fn track_point(waypoint: Waypoint, segment: u32) -> Option<TrackPoint> {
     // Read the borrowing accessors before moving `time` out of the waypoint.
     let point = waypoint.point();
     let ele = waypoint.elevation;
-    let ts = OffsetDateTime::from(waypoint.time?).unix_timestamp();
+    let at = DateTime::from_timestamp(OffsetDateTime::from(waypoint.time?).unix_timestamp(), 0)?;
 
     Some(TrackPoint {
-        ts,
+        at,
         lat: point.y(),
         lon: point.x(),
         ele,
@@ -284,10 +299,10 @@ fn read_file(path: &Path) -> Result<ParsedFile> {
     })
 }
 
-/// Earliest and latest timestamp among `points`, or `None` if there are none.
-fn span_of(points: &[TrackPoint]) -> Option<(i64, i64)> {
-    let first = points.iter().map(|p| p.ts).min()?;
-    let last = points.iter().map(|p| p.ts).max()?;
+/// Earliest and latest instant among `points`, or `None` if there are none.
+fn span_of(points: &[TrackPoint]) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
+    let first = points.iter().map(|p| p.at).min()?;
+    let last = points.iter().map(|p| p.at).max()?;
     Some((first, last))
 }
 
@@ -305,7 +320,7 @@ fn span_of(points: &[TrackPoint]) -> Option<(i64, i64)> {
 ///
 /// The bound is inclusive: sharing even a single second means two recorded
 /// positions for one instant.
-fn ensure_no_overlap(spans: &[(&Path, i64, i64)]) -> Result<()> {
+fn ensure_no_overlap(spans: &[(&Path, DateTime<Utc>, DateTime<Utc>)]) -> Result<()> {
     for (i, (path_a, start_a, end_a)) in spans.iter().enumerate() {
         for (path_b, start_b, end_b) in &spans[i + 1..] {
             if start_a <= end_b && start_b <= end_a {
@@ -357,9 +372,10 @@ fn distance_meters(a: TrackPoint, b: TrackPoint) -> f64 {
 }
 
 /// Linear interpolation between two bracketing points.
-fn interpolate(a: TrackPoint, b: TrackPoint, ts: i64) -> Fix {
-    // `Track::new` deduplicates by timestamp, so `b.ts > a.ts` here.
-    let fraction = (ts - a.ts) as f64 / (b.ts - a.ts) as f64;
+fn interpolate(a: TrackPoint, b: TrackPoint, at: DateTime<Utc>) -> Fix {
+    // `Track::new` deduplicates by instant, so `b.at > a.at` and the denominator
+    // is never zero.
+    let fraction = (at - a.at).as_seconds_f64() / (b.at - a.at).as_seconds_f64();
 
     // Longitude must take the shortest arc. A track crossing the antimeridian has
     // neighboring longitudes ~360 apart in raw value; interpolating those
@@ -398,9 +414,15 @@ mod tests {
 
     /// Generous enough that tests exercising other behavior are not gated.
     const LENIENT: GapLimits = GapLimits {
-        max_seconds: i64::MAX,
+        max_gap: TimeDelta::MAX,
         max_meters: f64::INFINITY,
     };
+
+    /// Test data stays written in plain Unix seconds — terse and easy to eyeball —
+    /// and becomes a real instant here, at the one place it enters the code.
+    fn at(seconds: i64) -> DateTime<Utc> {
+        DateTime::from_timestamp(seconds, 0).expect("a representable test instant")
+    }
 
     /// The shipped defaults, read from the one place that defines them, so these
     /// tests always exercise what the CLI actually hands to `lookup`.
@@ -408,7 +430,7 @@ mod tests {
 
     fn point(ts: i64, lat: f64, lon: f64, ele: Option<f64>) -> TrackPoint {
         TrackPoint {
-            ts,
+            at: at(ts),
             lat,
             lon,
             ele,
@@ -418,7 +440,7 @@ mod tests {
 
     fn in_segment(ts: i64, lat: f64, lon: f64, segment: u32) -> TrackPoint {
         TrackPoint {
-            ts,
+            at: at(ts),
             lat,
             lon,
             ele: None,
@@ -445,7 +467,7 @@ mod tests {
         ]);
 
         assert_eq!(
-            track.lookup(2000, LENIENT),
+            track.lookup(at(2000), LENIENT),
             Lookup::Found(Fix {
                 lat: 48.0,
                 lon: -123.0,
@@ -461,7 +483,7 @@ mod tests {
             point(2000, 48.0, -120.0, Some(200.0)),
         ]);
 
-        let fix = found(track.lookup(1500, LENIENT));
+        let fix = found(track.lookup(at(1500), LENIENT));
         assert!((fix.lat - 47.5).abs() < 1e-9, "lat was {}", fix.lat);
         assert!((fix.lon - -121.0).abs() < 1e-9, "lon was {}", fix.lon);
         assert!((fix.ele.unwrap() - 150.0).abs() < 1e-9);
@@ -474,7 +496,7 @@ mod tests {
             point(400, 10.0, 20.0, Some(80.0)),
         ]);
 
-        let fix = found(track.lookup(100, LENIENT));
+        let fix = found(track.lookup(at(100), LENIENT));
         assert!((fix.lat - 2.5).abs() < 1e-9, "lat was {}", fix.lat);
         assert!((fix.lon - 5.0).abs() < 1e-9, "lon was {}", fix.lon);
         assert!((fix.ele.unwrap() - 20.0).abs() < 1e-9);
@@ -487,8 +509,8 @@ mod tests {
             point(2000, 48.0, -123.0, None),
         ]);
 
-        assert_eq!(track.lookup(999, LENIENT), Lookup::OutsideTrack);
-        assert_eq!(track.lookup(2001, LENIENT), Lookup::OutsideTrack);
+        assert_eq!(track.lookup(at(999), LENIENT), Lookup::OutsideTrack);
+        assert_eq!(track.lookup(at(2001), LENIENT), Lookup::OutsideTrack);
     }
 
     #[test]
@@ -498,7 +520,7 @@ mod tests {
             point(2000, 0.0, -179.0, None),
         ]);
 
-        let fix = found(track.lookup(1500, LENIENT));
+        let fix = found(track.lookup(at(1500), LENIENT));
         // The shortest arc runs 179 -> 180 -> -179, so the midpoint sits on the
         // antimeridian itself, not at longitude 0 on the far side of the planet.
         assert!(
@@ -515,7 +537,7 @@ mod tests {
             point(2000, 0.0, 179.0, None),
         ]);
 
-        let fix = found(track.lookup(1500, LENIENT));
+        let fix = found(track.lookup(at(1500), LENIENT));
         assert!(
             fix.lon.abs() > 179.9,
             "expected a longitude near +/-180, got {}",
@@ -530,7 +552,7 @@ mod tests {
             point(2000, 0.0, 10.0, None),
         ]);
 
-        let fix = found(track.lookup(1500, LENIENT));
+        let fix = found(track.lookup(at(1500), LENIENT));
         assert!((fix.lon - 0.0).abs() < 1e-9, "lon was {}", fix.lon);
     }
 
@@ -541,7 +563,7 @@ mod tests {
             point(2000, 48.0, -123.0, None),
         ]);
 
-        assert_eq!(found(track.lookup(1500, LENIENT)).ele, None);
+        assert_eq!(found(track.lookup(at(1500), LENIENT)).ele, None);
     }
 
     #[test]
@@ -553,7 +575,7 @@ mod tests {
         ]);
 
         assert_eq!(track.point_count(), 2);
-        assert_eq!(track.span(), (1000, 2000));
+        assert_eq!(track.span(), (at(1000), at(2000)));
     }
 
     #[test]
@@ -565,9 +587,9 @@ mod tests {
     fn a_single_point_track_only_matches_exactly() {
         let track = track(vec![point(1000, 47.0, -122.0, None)]);
 
-        assert!(matches!(track.lookup(1000, LENIENT), Lookup::Found(_)));
-        assert_eq!(track.lookup(1001, LENIENT), Lookup::OutsideTrack);
-        assert_eq!(track.lookup(999, LENIENT), Lookup::OutsideTrack);
+        assert!(matches!(track.lookup(at(1000), LENIENT), Lookup::Found(_)));
+        assert_eq!(track.lookup(at(1001), LENIENT), Lookup::OutsideTrack);
+        assert_eq!(track.lookup(at(999), LENIENT), Lookup::OutsideTrack);
     }
 
     // ---- gap rejection ------------------------------------------------------
@@ -580,9 +602,9 @@ mod tests {
             point(1061, 47.00001, -122.0, None),
         ]);
 
-        match track.lookup(1030, DEFAULT) {
+        match track.lookup(at(1030), DEFAULT) {
             Lookup::InGap(gap) => {
-                assert_eq!(gap.seconds, 61);
+                assert_eq!(gap.duration.num_seconds(), 61);
                 assert!(!gap.across_segments);
                 assert!(gap.meters < 100.0, "distance was {}", gap.meters);
             }
@@ -598,9 +620,9 @@ mod tests {
             point(1010, 47.01, -122.0, None),
         ]);
 
-        match track.lookup(1005, DEFAULT) {
+        match track.lookup(at(1005), DEFAULT) {
             Lookup::InGap(gap) => {
-                assert_eq!(gap.seconds, 10);
+                assert_eq!(gap.duration.num_seconds(), 10);
                 assert!(gap.meters > 100.0, "distance was {}", gap.meters);
             }
             other => panic!("expected InGap, got {other:?}"),
@@ -615,7 +637,7 @@ mod tests {
             point(1010, 47.0001, -122.0, None),
         ]);
 
-        let fix = found(track.lookup(1005, DEFAULT));
+        let fix = found(track.lookup(at(1005), DEFAULT));
         assert!((fix.lat - 47.00005).abs() < 1e-9, "lat was {}", fix.lat);
     }
 
@@ -627,7 +649,7 @@ mod tests {
             in_segment(1001, 47.0000001, -122.0, 1),
         ]);
 
-        match adjacent.lookup(1000, DEFAULT) {
+        match adjacent.lookup(at(1000), DEFAULT) {
             // 1000 is an exact hit, so it resolves.
             Lookup::Found(_) => {}
             other => panic!("exact hit should resolve, got {other:?}"),
@@ -638,7 +660,7 @@ mod tests {
             in_segment(1000, 47.0, -122.0, 0),
             in_segment(1010, 47.0000001, -122.0, 1),
         ]);
-        match spanning.lookup(1005, DEFAULT) {
+        match spanning.lookup(at(1005), DEFAULT) {
             Lookup::InGap(gap) => assert!(gap.across_segments),
             other => panic!("expected InGap across segments, got {other:?}"),
         }
@@ -654,8 +676,8 @@ mod tests {
             point(10000, 49.0, -122.0, None),
         ]);
 
-        assert!(matches!(track.lookup(5000, DEFAULT), Lookup::Found(_)));
-        assert!(matches!(track.lookup(4999, DEFAULT), Lookup::InGap(_)));
+        assert!(matches!(track.lookup(at(5000), DEFAULT), Lookup::Found(_)));
+        assert!(matches!(track.lookup(at(4999), DEFAULT), Lookup::InGap(_)));
     }
 
     // ---- distance ------------------------------------------------------------
@@ -692,8 +714,8 @@ mod tests {
 
     // ---- multiple GPX files -------------------------------------------------
 
-    fn span(name: &str, start: i64, end: i64) -> (&Path, i64, i64) {
-        (Path::new(name), start, end)
+    fn span(name: &str, start: i64, end: i64) -> (&Path, DateTime<Utc>, DateTime<Utc>) {
+        (Path::new(name), at(start), at(end))
     }
 
     #[test]
@@ -828,7 +850,7 @@ mod tests {
 
         assert_eq!(track.point_count(), 4);
         // The span is the union, from the first file's start to the last's end.
-        assert_eq!(track.span(), (1_640_995_200, 1_640_995_270));
+        assert_eq!(track.span(), (at(1_640_995_200), at(1_640_995_270)));
     }
 
     #[test]
@@ -842,13 +864,16 @@ mod tests {
         // 00:00:30 sits between the two files: 50 s and 0 m apart, so both the
         // time and distance limits would allow it. Only the segment break stops
         // it — which is the whole point of continuing segment ids across files.
-        match track.lookup(1_640_995_230, DEFAULT) {
+        match track.lookup(at(1_640_995_230), DEFAULT) {
             Lookup::InGap(gap) => {
                 assert!(
                     gap.across_segments,
                     "the seam must read as a segment break, got {gap:?}"
                 );
-                assert!(gap.seconds <= DEFAULT.max_seconds, "{gap:?}");
+                assert!(
+                    gap.duration.num_seconds() <= DEFAULT.max_gap.num_seconds(),
+                    "{gap:?}"
+                );
                 assert!(gap.meters <= DEFAULT.max_meters, "{gap:?}");
             }
             other => panic!("expected InGap across the file seam, got {other:?}"),
@@ -905,7 +930,7 @@ mod tests {
                 "the seam between the first file's waypoints and the second file",
             ),
         ] {
-            match track.lookup(ts, DEFAULT) {
+            match track.lookup(at(ts), DEFAULT) {
                 Lookup::InGap(gap) => assert!(
                     gap.across_segments,
                     "{what} must read as a segment break, got {gap:?}"
