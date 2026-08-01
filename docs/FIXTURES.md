@@ -18,6 +18,13 @@ Only the photographs stay out of version control. The script and the hashes are
 project code: losing them would mean re-deriving every expected value, and a value
 re-derived from whatever the code currently does is worthless as a regression check.
 
+Because the location is *relative to the checkout*, *every* clone needs its own tree
+beside it for the no-argument invocation to work — otherwise pass `-FixtureRoot`. The
+copies are independent: **rebuild or correct one and the others are stale**, and the
+same code will then produce different aggregates depending on which clone you ran in.
+`-CheckSources` is what detects that, since it hashes the raws against the manifests
+in git rather than against each other.
+
 ## The three fixtures
 
 | Directory | Files | Size | Exercises |

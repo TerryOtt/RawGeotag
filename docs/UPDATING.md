@@ -125,18 +125,21 @@ so it chains: `cargo test && .\scripts\verify-fixtures.ps1`.
 
 Three things worth knowing before the first run:
 
-- **The 3.7 GB of raw photos are not in git.** Only the script and its per-file
-  manifests are. The fixture tree lives at
-  `C:\Users\TDO-XPS15-2024\Claude\RawGeotag-fixtures`, beside the primary checkout —
-  and **`C:\Travel\RawGeotag-fixtures` does not exist**, so from the travel checkout the
-  default resolves to nothing and the script throws `fixture root not found`. Point it at
-  the real one:
+- **The 3.7 GB of raw photos are not in git** — only the script and its per-file
+  manifests are. The script looks for the tree as a sibling of the checkout, so
+  **each checkout needs its own copy** and both on this machine have one:
+  `C:\Users\TDO-XPS15-2024\Claude\RawGeotag-fixtures` and
+  `C:\Travel\RawGeotag-fixtures`. The default therefore works from either, with no
+  arguments. From a checkout with no tree beside it, point at one that has:
 
   ```
   .\scripts\verify-fixtures.ps1 -FixtureRoot C:\Users\TDO-XPS15-2024\Claude\RawGeotag-fixtures
   ```
 
-  [`FIXTURES.md`](FIXTURES.md) has the rebuild recipe if the tree is ever lost.
+  The two copies are independent, so **a rebuilt or corrected fixture has to be
+  re-copied to the other**, or the same code will produce different aggregates in the
+  two checkouts. `-CheckSources` is what tells you they have diverged.
+  [`FIXTURES.md`](FIXTURES.md) has the rebuild recipe if a tree is ever lost.
 - **It deletes `.xmp` files inside the fixture directories**, before and after each run.
   That is required — a leftover sidecar is *skipped* rather than rewritten and would
   silently change the aggregate — and it is confined to the three fixture folders. It is
