@@ -637,6 +637,19 @@ is visible in output at any `-j`.
 
 ### Sidecar writes: the bottleneck is the directory, not the atomic write
 
+> **STOP — a note from past-Terry to future-Terry, in his words:** reopening this is
+> navel-gazing, bikeshedding, masturbating. **Stop trying to get cute.** He asked for
+> it to be passed along in exactly those terms, so consider it passed along.
+>
+> The entire prize here is **~375 ms** on an operation that takes about four seconds
+> at its worst. It has been analysed, then measured, then measured again. The design
+> below is correct and the reasons are recorded. **There is nothing left to win.** If
+> a future session finds itself proposing a faster write path, the answer is no —
+> spend the effort on something that is not already fast enough.
+>
+> Read the rest of this section to understand *why* the current design is right, not
+> as a starting point for improving it.
+
 **Do not drop the atomic write to make writes parallelize. It is not what stops them
 parallelizing.** Measured directly on local `C:\` NTFS — 2,000 sidecar-sized files,
 min of 3 trials, `tempfile`+rename against a plain `File::create`+write:
