@@ -15,14 +15,16 @@
 //! them with `Self::Cr3 | Self::Raf => ...` and split the arm when one diverges.
 //!
 //! **What limits this table is `nom-exif`, not the table.** It reads CR3, RAF,
-//! IIQ and TIFF; NEF, ARW, DNG, ORF, PEF and RW2 are not on its list, and adding
-//! a row does not conjure a parser.
+//! IIQ and TIFF; ARW, DNG, ORF, PEF and RW2 are not on its list, and adding a row
+//! does not conjure a parser.
 //!
-//! NEF specifically has been tested against 150 real files and is the instructive
-//! case: it parses through `MediaSource::from_memory` but *not* through
-//! `MediaSource::open`, which is what `raw.rs` uses. Supporting it therefore means
-//! a per-format choice of how to open the file — the first thing that would earn a
-//! new column here — plus reading whole ~22 MB files. CLAUDE.md has the numbers.
+//! NEF is the instructive case, and the reason `read_strategy` exists. It parses
+//! through `MediaSource::from_memory` but *not* through `MediaSource::open` — so
+//! supporting it took a genuine second column here, not just a row. That is what
+//! this table is for: the variation was real, it was data, and it went in the data
+//! table. Note the asymmetry it introduces — `WholeFile` reads every byte of every
+//! photo, where `Streaming` reads a header — so a NEF run is I/O-shaped quite
+//! differently from a CR3 one. CLAUDE.md has the measurements.
 //!
 //! For the formats nom-exif cannot read at all, the pure-Rust alternative is
 //! `rawler` (`Decoder::raw_metadata()` reads metadata without decoding the image);
@@ -45,27 +47,69 @@ pub struct CaptureTag {
     pub offset: ExifTag,
 }
 
+/// How a format's bytes have to reach the parser.
+///
+/// This exists because nom-exif does not handle every container the same way, and
+/// the difference is not cosmetic — it is the difference between reading a header
+/// and reading the whole file. Guessing wrong is not subtle: the wrong strategy
+/// fails outright rather than silently misreading, which is the failure mode to
+/// prefer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReadStrategy {
+    /// Let the parser seek within the file and read only what it needs. Cheap —
+    /// a ~30 MB CR3 costs a few header reads.
+    Streaming,
+    /// Hand the parser the entire file.
+    ///
+    /// Required by the TIFF-based raws: their EXIF IFD sits past what the
+    /// streaming reader buffers, and that path reports needing more bytes as
+    /// malformed data rather than asking for more, so it never recovers. Costs a
+    /// full-file read per photo — ~22 MB for a D3300 NEF.
+    WholeFile,
+}
+
 /// A raw format we know how to read a capture time from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RawFormat {
     Cr3,
+    Nef,
 }
 
 impl RawFormat {
     /// Every supported format, in help-text order.
-    pub const ALL: &'static [RawFormat] = &[Self::Cr3];
+    pub const ALL: &'static [RawFormat] = &[Self::Cr3, Self::Nef];
 
     /// Extensions that select this format, lowercase.
     pub fn extensions(self) -> &'static [&'static str] {
         match self {
             Self::Cr3 => &["cr3"],
+            Self::Nef => &["nef"],
+        }
+    }
+
+    /// How to hand this format's bytes to the parser.
+    ///
+    /// Verified against real files of each format, which is the only way to know:
+    /// see the NEF section of CLAUDE.md for what the wrong choice looks like.
+    pub fn read_strategy(self) -> ReadStrategy {
+        match self {
+            Self::Cr3 => ReadStrategy::Streaming,
+            Self::Nef => ReadStrategy::WholeFile,
         }
     }
 
     /// Capture-time tags to try, in priority order.
     pub fn capture_tags(self) -> &'static [CaptureTag] {
         match self {
-            Self::Cr3 => &[
+            // Collapsed deliberately: these two formats genuinely do not differ
+            // here, and one arm says so more plainly than two identical ones.
+            // Split it the moment one of them diverges.
+            //
+            // The pairing is the spec's, not a guess about any particular body.
+            // A D3300 happens to write no `OffsetTimeOriginal` at all — those
+            // files reach the `NeedsOffset` gate and need `--utc-offset` — but
+            // other Nikon bodies do write it, so the tag belongs here regardless.
+            Self::Cr3 | Self::Nef => &[
                 CaptureTag {
                     datetime: ExifTag::DateTimeOriginal,
                     offset: ExifTag::OffsetTimeOriginal,
@@ -140,5 +184,14 @@ mod tests {
     fn unknown_extension_is_rejected() {
         assert_eq!(RawFormat::from_extension("jpg"), None);
         assert_eq!(RawFormat::from_extension(""), None);
+    }
+
+    /// Pinned rather than derived: each of these was established against real
+    /// files of that format, and the compiler cannot tell that one is wrong. A
+    /// flipped value fails every file of that format at runtime.
+    #[test]
+    fn read_strategies_are_the_ones_verified_against_real_files() {
+        assert_eq!(RawFormat::Cr3.read_strategy(), ReadStrategy::Streaming);
+        assert_eq!(RawFormat::Nef.read_strategy(), ReadStrategy::WholeFile);
     }
 }

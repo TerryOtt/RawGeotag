@@ -4,13 +4,14 @@
 //! across threads behind a mutex would serialize the whole run. Callers pass one
 //! in; `main` builds a parser per rayon worker with `map_init`.
 
+use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result};
 use chrono::FixedOffset;
 use nom_exif::{Error as ExifError, Exif, MediaParser, MediaSource};
 
-use crate::format::RawFormat;
+use crate::format::{RawFormat, ReadStrategy};
 
 /// What reading one file's capture time produced.
 pub enum Capture {
@@ -29,9 +30,50 @@ pub enum Capture {
 }
 
 /// EXIF recorded a timezone that disagrees with `--utc-offset`.
+#[derive(Debug, PartialEq, Eq)]
 pub struct OffsetConflict {
     pub exif: FixedOffset,
     pub cli: FixedOffset,
+}
+
+/// Which offset to attach to a capture time, and what to report about it.
+#[derive(Debug, PartialEq, Eq)]
+enum OffsetChoice {
+    /// Attach this offset. `conflict` is set when EXIF and `--utc-offset`
+    /// disagreed; the EXIF value is the one applied either way.
+    Apply {
+        offset: FixedOffset,
+        conflict: Option<OffsetConflict>,
+    },
+    /// Refuse the whole run. Nothing states what zone this timestamp is in, and
+    /// guessing could misplace the photo by a whole day of travel.
+    Gate,
+}
+
+/// The timezone policy in one place: **EXIF wins, `--utc-offset` fills in, and
+/// neither one means the run is refused.**
+///
+/// Split out of `capture_time` so the rule can be tested exhaustively without a
+/// fixture file per format — most of all the `Gate` branch, where the correct
+/// behavior is that not one sidecar gets written.
+fn choose_offset(exif: Option<FixedOffset>, cli: Option<FixedOffset>) -> OffsetChoice {
+    match (exif, cli) {
+        // The camera recorded its own zone and is the better authority, so the
+        // CLI value never overrides it — it is only reported as a disagreement.
+        (Some(exif), Some(cli)) => OffsetChoice::Apply {
+            offset: exif,
+            conflict: (exif != cli).then_some(OffsetConflict { exif, cli }),
+        },
+        (Some(exif), None) => OffsetChoice::Apply {
+            offset: exif,
+            conflict: None,
+        },
+        (None, Some(cli)) => OffsetChoice::Apply {
+            offset: cli,
+            conflict: None,
+        },
+        (None, None) => OffsetChoice::Gate,
+    }
 }
 
 /// Read the capture instant from `path`.
@@ -45,8 +87,23 @@ pub fn capture_time(
     format: RawFormat,
     utc_offset: Option<FixedOffset>,
 ) -> Result<Capture> {
-    let source = MediaSource::open(path).with_context(|| format!("opening {}", path.display()))?;
-    let iter = match parser.parse_exif(source) {
+    // The two arms build different `MediaSource` types, so they cannot be joined
+    // before the parse — they converge on its result instead.
+    let parsed = match format.read_strategy() {
+        ReadStrategy::Streaming => {
+            let source =
+                MediaSource::open(path).with_context(|| format!("opening {}", path.display()))?;
+            parser.parse_exif(source)
+        }
+        ReadStrategy::WholeFile => {
+            let bytes = fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+            let source = MediaSource::from_memory(bytes)
+                .with_context(|| format!("reading {}", path.display()))?;
+            parser.parse_exif(source)
+        }
+    };
+
+    let iter = match parsed {
         Ok(iter) => iter,
         // No EXIF at all is the same situation for the user as EXIF without a date
         // tag — there is no capture time to correlate — so report it the same way
@@ -81,20 +138,15 @@ pub fn capture_time(
         .map(|aware| *aware.offset())
         .or(paired_offset);
 
-    let conflict = match (exif_offset, utc_offset) {
-        (Some(exif), Some(cli)) if exif != cli => Some(OffsetConflict { exif, cli }),
-        _ => None,
-    };
-
-    let resolved = match exif_offset.or(utc_offset) {
-        // `or_offset` attaches the offset only to naive values and returns aware
-        // ones untouched, so an already-aware datetime keeps its own zone.
-        Some(offset) => datetime.or_offset(offset),
-        None => return Ok(Capture::NeedsOffset),
+    let (offset, conflict) = match choose_offset(exif_offset, utc_offset) {
+        OffsetChoice::Apply { offset, conflict } => (offset, conflict),
+        OffsetChoice::Gate => return Ok(Capture::NeedsOffset),
     };
 
     Ok(Capture::Resolved {
-        ts: resolved.timestamp(),
+        // `or_offset` attaches the offset only to naive values and returns aware
+        // ones untouched, so an already-aware datetime keeps its own zone.
+        ts: datetime.or_offset(offset).timestamp(),
         conflict,
     })
 }
@@ -154,5 +206,73 @@ mod tests {
         for bad in ["", "0700", "-7", "-07000", "-0760", "+abcd", "Z"] {
             assert_eq!(parse_offset(bad), None, "{bad:?} should be rejected");
         }
+    }
+
+    // ---- the gate rule ------------------------------------------------------
+    //
+    // These four cases are the whole timezone policy. The first is the one that
+    // matters most: a Nikon D3300 writes no `OffsetTimeOriginal` at all, so every
+    // file from that body lands there, and getting it wrong would silently tag a
+    // whole shoot with positions off by the missing offset.
+
+    fn east(hours: i32) -> FixedOffset {
+        FixedOffset::east_opt(hours * 3600).expect("a valid offset")
+    }
+
+    #[test]
+    fn no_exif_zone_and_no_cli_offset_gates_the_run() {
+        // Nothing on earth says what zone this timestamp is in. Refusing is the
+        // only honest answer — a guess could misplace the photo by a day of
+        // travel, and `main` turns this into "no sidecars were written".
+        assert_eq!(choose_offset(None, None), OffsetChoice::Gate);
+    }
+
+    #[test]
+    fn the_cli_offset_fills_in_when_exif_has_no_zone() {
+        assert_eq!(
+            choose_offset(None, Some(east(-7))),
+            OffsetChoice::Apply {
+                offset: east(-7),
+                conflict: None,
+            }
+        );
+    }
+
+    #[test]
+    fn exif_alone_is_enough_and_needs_no_cli_offset() {
+        assert_eq!(
+            choose_offset(Some(east(1)), None),
+            OffsetChoice::Apply {
+                offset: east(1),
+                conflict: None,
+            }
+        );
+    }
+
+    #[test]
+    fn exif_beats_the_cli_offset_and_the_disagreement_is_reported() {
+        // EXIF wins — the camera recorded its own zone — but the user is told,
+        // because one of the two is wrong and it is not ours to decide which.
+        assert_eq!(
+            choose_offset(Some(east(1)), Some(east(-7))),
+            OffsetChoice::Apply {
+                offset: east(1),
+                conflict: Some(OffsetConflict {
+                    exif: east(1),
+                    cli: east(-7),
+                }),
+            }
+        );
+    }
+
+    #[test]
+    fn agreeing_offsets_are_not_reported_as_a_conflict() {
+        assert_eq!(
+            choose_offset(Some(east(1)), Some(east(1))),
+            OffsetChoice::Apply {
+                offset: east(1),
+                conflict: None,
+            }
+        );
     }
 }

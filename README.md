@@ -15,15 +15,20 @@ operation is reversible by deleting the generated `.xmp` files.
 **Implemented and building.** The unit test suite passes and `cargo clippy -- -D
 warnings` is clean; run `cargo test` for the current tally.
 
-Verified against two real Canon EOS R5 shoots and their GPX tracks:
+Verified against real shoots and their GPX tracks, on two camera bodies:
 
-- **1024 CR3s** — 1002 tagged, 22 correctly refused as falling in track gaps.
-  Interpolated positions agree with hand-computed values from the raw track points
-  to within the coordinate encoding's resolution (~0.2 m).
+- **1024 CR3s** (Canon EOS R5) — 1002 tagged, 22 correctly refused as falling in
+  track gaps. Interpolated positions agree with hand-computed values from the raw
+  track points to within the coordinate encoding's resolution (~0.2 m).
 - **3883 CR3s, 188 GB** — 2394 tagged, 1489 refused (772 across `<trkseg>` breaks,
   the rest in 5-to-60-minute dropouts). This body had its clock on `+01:00`, which
   exercises the EXIF timezone path that a `+00:00` camera leaves as a no-op; spot
   checks match the raw GPX exactly.
+- **NEFs** (Nikon D3300, Sedona 2019) — 30 of 30 tagged against the day's track.
+  This body writes no EXIF timezone, so it also confirms the refusal path: without
+  `--utc-offset` the run aborts having written nothing. An interpolated position
+  recomputed by hand from the raw GPX agreed to **under 5 cm**, and the altitude
+  (1323 m) is right for Sedona.
 
 Output is deterministic: the same input at `--jobs 1`, `2` and `16` produces
 byte-identical sidecars and an identical warning list. ExifTool is used throughout
@@ -48,7 +53,7 @@ The binary lands at `target/release/rawgeotag` (`rawgeotag.exe` on Windows).
 rawgeotag <DIR> <EXT> <GPX>... [OPTIONS]
 
   DIR    parent directory, searched recursively
-  EXT    raw extension, e.g. "cr3" (case-insensitive, leading "." tolerated)
+  EXT    raw extension: "cr3" or "nef" (case-insensitive, leading "." tolerated)
   GPX    path to a GPX track file; repeat for a day split across several tracks
 
   --utc-offset <±HHMM>     offset for files with no EXIF timezone, e.g. -0700
@@ -67,6 +72,15 @@ Example:
 rawgeotag ./shoot cr3 ./track.gpx --utc-offset -0700
 ```
 
+**Canon CR3 and Nikon NEF are supported.** They differ in one way worth knowing
+before a NEF run: many Nikon bodies write no EXIF timezone at all, so every file
+hits the "no timezone" refusal and `--utc-offset` becomes mandatory rather than
+optional. NEF also costs more to read — see Performance.
+
+```
+rawgeotag ./shoot nef ./track.gpx --utc-offset +0000
+```
+
 A day is often split across several tracks — a driving log and a separate evening
 walk. Pass them all and each photo is matched against whichever one covers its
 capture time:
@@ -81,12 +95,11 @@ one would make the geotag depend on the order you listed the files. Run overlapp
 tracks as separate passes instead — photos outside a track are skipped, so a later
 pass tags only what the earlier one left alone.
 
-Canon CR3 ships first. Adding a format is a one-row change to a table *for anything
-the EXIF parser already reads* — CR3, Fujifilm RAF, Phase One IIQ and TIFF. Nikon
-NEF has been tested and is a larger job: it parses only from a whole-file buffer,
-not the streaming reader used here, so it needs a per-format read strategy and the
-I/O cost of reading entire ~22 MB files. Sony ARW and DNG are not supported by the
-EXIF parser at all. See the Format extensibility section of the plan.
+Canon CR3 and Nikon NEF are supported. Adding another format is a small change to a
+data table *for anything the EXIF parser already reads* — which also covers Fujifilm
+RAF, Phase One IIQ and TIFF. Sony ARW, DNG, ORF, PEF and RW2 are not readable by
+that parser at all and would need a different one. See the Format extensibility
+section of the plan.
 
 ### Behavior worth knowing
 

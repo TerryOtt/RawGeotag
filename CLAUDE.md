@@ -203,39 +203,49 @@ Beware also that ExifTool reports CR3 `CreateDate` in *local machine time* from 
 BMFF container, which differs from the EXIF `DateTimeOriginal`. Compare against
 `DateTimeOriginal`, not `CreateDate`, when sanity-checking by hand.
 
-## NEF: settled empirically, do not re-derive
+## NEF, and why `read_strategy` exists
 
-The plan originally assumed NEF would come free because NEF is TIFF-based and
-nom-exif reads TIFF. Tested against **150 Nikon D3300 files** from three shoots
-(2019-01-19, 2020-01-03, 2021-05-19). The answer is more specific than yes or no:
+The plan assumed NEF would come free because NEF is TIFF-based and nom-exif reads
+TIFF. Tested against **150 Nikon D3300 files** from three shoots, the answer was
+more specific than yes or no:
 
 | | result |
 |---|---|
-| `MediaSource::open` — *what `raw.rs` uses* | **0 of 150 parse** |
-| `MediaSource::from_memory` — whole file | **150 of 150**, timestamps match ExifTool exactly |
+| `MediaSource::open` — the streaming source | **0 of 150 parse** |
+| `MediaSource::from_memory` — whole file | **150 of 150**, matching ExifTool exactly |
 | Files carrying `OffsetTimeOriginal` | **0 of 150** |
 
 The streaming failure is `malformed ifd entry: parse ifd entry header failed:
-Incomplete(Size(169858))`: the TIFF path reports a need-more-bytes condition as
+Incomplete(Size(169858))`: that path reports a need-more-bytes condition as
 malformed data rather than asking for more bytes, so the buffer never grows. In
-memory mode every byte is already present, so it never arises.
+memory mode every byte is already present, so it never arises. **Do not "simplify"
+`read_strategy` away by using `from_memory` everywhere** — it would make every CR3
+run read 30 MB per photo instead of a header, for no gain.
 
-**NEF is therefore possible but is not "a row in the table".** It needs three things:
+Three consequences, all load-bearing:
 
-1. **Per-format source selection** — `from_memory` for NEF, `open` for CR3. This is
-   the first thing that genuinely earns a new column in `format.rs`'s table, and it
-   is some evidence the enum-plus-table shape was right.
-2. **Accepting the I/O.** `from_memory` reads the entire file — these average
-   21.7 MB — against a CR3 read that touches only headers (~0.3 s for all 3883).
-   Over SMB, 150 NEFs meant 3.06 GB and 23 s single-threaded. Do **not** quote the
-   warm local figure (177 ms for 25 files); that measures RAM, per the rule below.
-3. **`--utc-offset` on every NEF run.** The D3300 writes no `OffsetTimeOriginal`, so
-   every file reaches the `NeedsOffset` gate and the run aborts without it. That is
-   the gate working, not a bug. ExifTool shows a Nikon MakerNote `TimeZone` tag, but
-   it is a maker note, not the EXIF tag, and `format.rs` cannot pair against it.
+1. **`WholeFile` formats are bandwidth-bound, not latency-bound**, which changes
+   what `-j` buys. Cold SMB, `--dry-run`, a different uncached folder per job count
+   so nothing is served from cache: **129 MB/s at `-j 1`, 159 at `-j 2`, 256 at
+   `-j 8`** (3.7 GB / 27 GB / 103 GB respectively — throughput is the comparable
+   figure, not elapsed time). So threads still help, but roughly **2x**, against the
+   **12x** CR3 gets from the same knob: there is far less latency to hide when each
+   file is 22 MB of payload. Worth raising for a network NEF import, worth much less
+   than the CR3 numbers below would lead you to expect.
+2. **`--utc-offset` is mandatory for a D3300.** It writes no `OffsetTimeOriginal`,
+   so every file reaches the `NeedsOffset` gate and the run aborts having written
+   nothing. That is the gate working, not a bug. ExifTool does show a Nikon
+   MakerNote `TimeZone` tag — it is a maker note, not the EXIF tag, and `format.rs`
+   deliberately cannot pair against it.
+3. **This camera's clock was on UTC.** Sedona 2019-01-19: naive EXIF 20:52 with
+   `--utc-offset +0000` lands inside a track running 20:48:50-21:40:34 Z, and the
+   resulting coordinates are in Sedona at 1323 m. Do not generalize it — read the
+   span and compare, exactly as with the R5 bodies.
 
-None of this is implemented — the tool is CR3-only and the table has one row. This
-section exists so the next person does not re-run the experiment.
+**Verified end to end** (Sedona 2019-01-19, 30 NEFs against that day's track): 30
+of 30 tagged; the run refuses everything without `--utc-offset`; an interpolated
+position recomputed by hand from the raw GPX agreed to **under 5 cm** (31 s / 1.2 m
+bracketing gap); ExifTool `-validate` OK; byte-identical output at `-j 1, 2, 8, 16`.
 
 ## Measured behavior worth not rediscovering
 
