@@ -473,35 +473,42 @@ performance benefit that does not exist.
   `Get-ChildItem -LiteralPath <dir> -Filter *.ext -Force`, and confirm with
   `Test-Path` before believing any count that suggests files vanished.
 
-### The verification fixture on `C:\` — use it, do not re-stage from `Q:\`
+### Verifying against real files — run every format, every time
 
-**`C:\Users\TDO-XPS15-2024\Claude\RawGeotag-fixtures`** — 40 Canon CR3, 30 Nikon
-NEF, and the two GPX tracks covering them, **2.37 GB**, on local NVMe. Sits beside
-the repo, never inside it: 2.4 GB of raws must not reach git. Its `README.md` has
-the layout, the exact commands, and how the aggregate hash is computed.
+**`C:\Users\TDO-XPS15-2024\Claude\RawGeotag-fixtures\verify.ps1`.** One command,
+all three fixtures, non-zero exit on any failure. **Never verify just the format
+you happen to be working on** — `RawFormat::read_strategy` returns `Streaming` for
+CR3 and `WholeFile` for NEF, so they run through different code in `raw.rs` and
+passing on one says nothing about the other.
 
-**This is the set the byte-identical-output checks run against**, and it is pinned
-for a reason beyond speed. Those checks used to stage "the first 40 CR3s of
-`2025-09-18`", which returns the same 40 files *by luck* — one new file in that
-folder and `C2277B569D9058B6` silently stops referring to anything. Per-file
-SHA-256 sits in `SHA256SUMS.txt` so the set is checkable rather than assumed.
+| Fixture | Files | Exercises | Aggregate |
+|---|---|---|---|
+| `cr3-malta` | 40 CR3 | `Streaming`; offset `+00:00`, a no-op | `C2277B569D9058B6` |
+| `cr3-rockies` | 30 CR3 | `Streaming`; offset **`+01:00`, real conversion** | `0D969878B1B7081C` |
+| `nef-sedona` | 30 NEF | `WholeFile`; **no** offset, so the gate must fire | `E7E243F581F1CA93` |
 
-| Fixture | Command | Expect |
-|---|---|---|
-| `cr3-malta` | `rawgeotag <F>\cr3-malta cr3 <F>\gpx\malta-2025-09-18.gpx` | 40 tagged, `C2277B569D9058B6` |
-| `nef-sedona` | `rawgeotag --utc-offset +0000 <F>\nef-sedona nef <F>\gpx\sedona-2019-01-19.gpx` | 30 tagged, `E7E243F581F1CA93` |
+2.37 GB total on local NVMe, beside the repo and never inside it, since raws must
+not reach git. `README.md` there has the layout and the hash recipe; per-file
+SHA-256 is in each `SHA256SUMS.txt`.
 
-The NEF set exercises the gate for free: **without `--utc-offset` it must refuse
-all 30 and write nothing**, because the D3300 records no EXIF timezone.
+**Why three and not two.** The timezone cases differ, and that matters more than
+the file count: **a bug that dropped the EXIF offset would pass Malta and Sedona
+both** — `+00:00` is a no-op and the D3300 has no offset to drop. Measured on
+`_50A0001.CR3`: correct is `51.352357, -116.088200`; read as naive UTC it lands
+`51.717543, -116.507579`, **49.9 km away**, and *still tags*, because that hour-
+shifted time also falls inside the track. No error, no skip, no warning — the
+mantra's exact failure mode, and `cr3-rockies` is the only fixture that sees it.
 
-Two ways to get a false result. **Delete the `.xmp` files first** — a leftover
-sidecar is skipped rather than rewritten, which changes the aggregate. And **a
-deliberate change to `xmp.rs`'s packet, or to the crate version in `x:xmptk`, moves
-both hashes legitimately** — re-derive and update the README rather than hunting a
-regression.
+**Why pinned rather than staged fresh.** These checks used to copy "the first 40
+CR3s of `2025-09-18`", which returns the same 40 files *by luck* — one new file in
+that folder and `C2277B569D9058B6` silently refers to nothing while still appearing
+to pass.
 
-Both hashes have survived the `tempfile` change, the chrono refactor, and
-`--jobs 1/2/8/16`.
+Two ways to get a false result: **leftover `.xmp` files** are skipped rather than
+rewritten and change the aggregate (`verify.ps1` clears them for you), and a
+**deliberate change to `xmp.rs`'s packet or to the crate version in `x:xmptk`**
+moves all three hashes legitimately — re-derive and update `verify.ps1` and the
+README rather than hunting a regression.
 
 ### The standing NEF fixture on `N:\` — reuse it, do not delete it
 
@@ -520,12 +527,13 @@ which is the whole point.
 | | `C:\...\RawGeotag-fixtures` | `N:\rawgeotag-bench` |
 |---|---|---|
 | For | correctness — byte-identical output | performance — read throughput |
-| Size | 2.37 GB, 70 files | ~18 GB, 800 files |
-| Has a covering track | yes, both sets | **no** |
+| Size | 2.37 GB, 100 files, 3 sets | ~18 GB, 800 files, 4 sets |
+| Formats | CR3 **and** NEF | NEF only |
+| Has a covering track | yes, all three sets | **no** |
 | Right storage | local NVMe, fast and fixed | the NAS, which is what a real import reads |
 
-**Use `C:\` for end-to-end NEF verification**, not this one: it has the Sedona track
-and a recorded expected hash.
+**For any end-to-end verification, run `C:\...\RawGeotag-fixtures\verify.ps1`** —
+all formats, recorded hashes, not this one.
 
 Being D3300, every file needs `--utc-offset`; without it the run stops at the gate.
 `--dry-run --utc-offset +0000` is the benchmark invocation.
