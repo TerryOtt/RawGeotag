@@ -366,6 +366,12 @@ at. The 103 GB NEF sweep against `Q:\` took ~7 minutes of wall clock.
   has. `N:\` results are a separate row, not a correction.
 - **Stage distinct file sets per measurement anyway**, even though the check below
   found no caching: it costs nothing and the assumption could change with file size.
+- **Do not verify file counts over SMB with `Get-ChildItem <dir>\*.ext`.** That form
+  served a *stale directory enumeration* and reported 3 sidecars where 30 existed —
+  `Get-Content` on one of the "missing" files read it fine at that very moment. It
+  looks exactly like catastrophic data loss and is not. Use
+  `Get-ChildItem -LiteralPath <dir> -Filter *.ext -Force`, and confirm with
+  `Test-Path` before believing any count that suggests files vanished.
 
 ### The standing NEF fixture on `N:\` — reuse it, do not delete it
 
