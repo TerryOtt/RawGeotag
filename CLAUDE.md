@@ -446,6 +446,13 @@ Partial-read plus single-pass beats any per-read speedup.
 There is also a correctness reason not to: **the archive is where the photos live**,
 so timing CR3 against NVMe measures a configuration that never occurs.
 
+**Caching GPX tracks locally is worth nothing — measured, not assumed.** Reading a
+4 MB track's span costs **174 ms from `Q:\` and 184 ms from local `C:\`**: identical
+within noise, because the cost is `xml-rs` *parsing*, not I/O. This is the most
+appealing wrong idea in this area, since tracks are small and re-read constantly.
+The only thing that speeds track reading up is parsing fewer of them, or in
+parallel — which `Track::load` already does.
+
 **Keep the two rationales separate.** Staging CR3 for *safety* — because the work
 writes, forces, or deletes — is right and required. Staging CR3 for *speed* is
 wrong. Conflating them is how someone talks themselves into a 13-minute copy for a
@@ -466,6 +473,36 @@ performance benefit that does not exist.
   `Get-ChildItem -LiteralPath <dir> -Filter *.ext -Force`, and confirm with
   `Test-Path` before believing any count that suggests files vanished.
 
+### The verification fixture on `C:\` — use it, do not re-stage from `Q:\`
+
+**`C:\Users\TDO-XPS15-2024\Claude\RawGeotag-fixtures`** — 40 Canon CR3, 30 Nikon
+NEF, and the two GPX tracks covering them, **2.37 GB**, on local NVMe. Sits beside
+the repo, never inside it: 2.4 GB of raws must not reach git. Its `README.md` has
+the layout, the exact commands, and how the aggregate hash is computed.
+
+**This is the set the byte-identical-output checks run against**, and it is pinned
+for a reason beyond speed. Those checks used to stage "the first 40 CR3s of
+`2025-09-18`", which returns the same 40 files *by luck* — one new file in that
+folder and `C2277B569D9058B6` silently stops referring to anything. Per-file
+SHA-256 sits in `SHA256SUMS.txt` so the set is checkable rather than assumed.
+
+| Fixture | Command | Expect |
+|---|---|---|
+| `cr3-malta` | `rawgeotag <F>\cr3-malta cr3 <F>\gpx\malta-2025-09-18.gpx` | 40 tagged, `C2277B569D9058B6` |
+| `nef-sedona` | `rawgeotag --utc-offset +0000 <F>\nef-sedona nef <F>\gpx\sedona-2019-01-19.gpx` | 30 tagged, `E7E243F581F1CA93` |
+
+The NEF set exercises the gate for free: **without `--utc-offset` it must refuse
+all 30 and write nothing**, because the D3300 records no EXIF timezone.
+
+Two ways to get a false result. **Delete the `.xmp` files first** — a leftover
+sidecar is skipped rather than rewritten, which changes the aggregate. And **a
+deliberate change to `xmp.rs`'s packet, or to the crate version in `x:xmptk`, moves
+both hashes legitimately** — re-derive and update the README rather than hunting a
+regression.
+
+Both hashes have survived the `tempfile` change, the chrono refactor, and
+`--jobs 1/2/8/16`.
+
 ### The standing NEF fixture on `N:\` — reuse it, do not delete it
 
 `N:\rawgeotag-bench\{j1,j2,j4,j8}` — **four disjoint sets of 200 Nikon D3300 NEFs,
@@ -474,12 +511,21 @@ the slow array. Copied from `Q:\Lightroom\Images\2021\2021-05-19` (4,813 files),
 sorted, slices 0-199 / 200-399 / 400-599 / 600-799. The directory names record which
 job count each set was used for, so a repeat sweep can reuse the same pairing.
 
-**It is a read benchmark, not a tagging fixture.** No GPX track exists for
-2021-05-19 — the earliest 2021 track is 08-06 — so every photo in it reports
-*outside track*, which is correct and is not a bug to chase. That is fine for timing
-the read phase, which is the whole point. For **end-to-end** NEF verification use the
-Sedona 2019-01-19 set and its track instead, which is what the NEF section above was
-validated against.
+**It is a read benchmark, not a tagging fixture** — the opposite job from the `C:\`
+fixture above, so do not reach for the wrong one. No GPX track exists for 2021-05-19
+— the earliest 2021 track is 08-06 — so every photo in it reports *outside track*,
+which is correct and is not a bug to chase. That is fine for timing the read phase,
+which is the whole point.
+
+| | `C:\...\RawGeotag-fixtures` | `N:\rawgeotag-bench` |
+|---|---|---|
+| For | correctness — byte-identical output | performance — read throughput |
+| Size | 2.37 GB, 70 files | ~18 GB, 800 files |
+| Has a covering track | yes, both sets | **no** |
+| Right storage | local NVMe, fast and fixed | the NAS, which is what a real import reads |
+
+**Use `C:\` for end-to-end NEF verification**, not this one: it has the Sedona track
+and a recorded expected hash.
 
 Being D3300, every file needs `--utc-offset`; without it the run stops at the gate.
 `--dry-run --utc-offset +0000` is the benchmark invocation.
