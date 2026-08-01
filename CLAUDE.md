@@ -273,7 +273,7 @@ Two NAS shares with opposite roles. Getting this wrong is either slow or damagin
 |---|---|---|
 | Array | **HDD RAID6** — seek-bound, slow | **NVMe RAID10** — fast |
 | Holds | `Q:\Lightroom\Images\<year>\<date>` and `Q:\Photo GPX Tracks\<year>` | nothing that matters |
-| Rule | **treat as the archive: do not write to it while developing** | disposable, clobber freely |
+| Rule | **treat as the archive: do not write to it while developing** | disposable, clobber freely — *except* `rawgeotag-bench`, see below |
 | Size | 11 TB, 3.8 TB free | 3.0 TB, 2.3 TB free (2026-08-01) |
 
 **Stage a working set on `N:\` and iterate there.** One copy off `Q:\` buys every
@@ -297,6 +297,24 @@ at. The 103 GB NEF sweep against `Q:\` took ~7 minutes of wall clock.
   has. `N:\` results are a separate row, not a correction.
 - **Stage distinct file sets per measurement anyway**, even though the check below
   found no caching: it costs nothing and the assumption could change with file size.
+
+### The standing NEF fixture on `N:\` — reuse it, do not delete it
+
+`N:\rawgeotag-bench\{j1,j2,j4,j8}` — **four disjoint sets of 200 Nikon D3300 NEFs,
+~4.3 GB each, ~18 GB total.** Kept deliberately so NEF work never has to re-copy off
+the slow array. Copied from `Q:\Lightroom\Images\2021\2021-05-19` (4,813 files), name-
+sorted, slices 0-199 / 200-399 / 400-599 / 600-799. The directory names record which
+job count each set was used for, so a repeat sweep can reuse the same pairing.
+
+**It is a read benchmark, not a tagging fixture.** No GPX track exists for
+2021-05-19 — the earliest 2021 track is 08-06 — so every photo in it reports
+*outside track*, which is correct and is not a bug to chase. That is fine for timing
+the read phase, which is the whole point. For **end-to-end** NEF verification use the
+Sedona 2019-01-19 set and its track instead, which is what the NEF section above was
+validated against.
+
+Being D3300, every file needs `--utc-offset`; without it the run stops at the gate.
+`--dry-run --utc-offset +0000` is the benchmark invocation.
 
 **NEF read sweep on `N:\`** — 200 files (~4.3 GB) per run, a separate staged set per
 job count, `--dry-run`:
