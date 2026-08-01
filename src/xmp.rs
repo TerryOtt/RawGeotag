@@ -12,6 +12,7 @@
 //! RDF where this writes attribute-form. That is the same amount of code plus a
 //! dependency.
 
+use std::fmt;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -26,45 +27,88 @@ pub fn sidecar_path(raw: &Path) -> PathBuf {
     raw.with_extension("xmp")
 }
 
+/// One photo's sidecar, rendered by its `Display` impl.
+///
+/// `Display` rather than a function returning `String` because the packet has one
+/// genuinely conditional part — altitude, present only when the track has
+/// elevation — and a format template cannot express "these two lines or nothing".
+/// The previous version built that fragment as its own `String`, complete with the
+/// document's newlines and four-space indent baked into a value, and spliced it
+/// mid-attribute-list. The layout was smeared across two places and the indent had
+/// to be kept matching by hand. Here it is an ordinary `if let`.
+pub struct Packet<'a> {
+    fix: &'a Fix,
+    captured: DateTime<Utc>,
+}
+
+impl fmt::Display for Packet<'_> {
+    /// One `writeln!` per line of the document, so the source reads in the same
+    /// order and shape as the file it produces.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(
+            f,
+            "<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>"
+        )?;
+        writeln!(
+            f,
+            r#"<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="rawgeotag {}">"#,
+            env!("CARGO_PKG_VERSION")
+        )?;
+        writeln!(
+            f,
+            r#" <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">"#
+        )?;
+        // Escaped rather than raw: the value is the empty string, so the line ends
+        // with two quotes, and `r#"...about="""#` puts three in a row before the
+        // delimiter. That lexes correctly but reads like a typo — and getting it
+        // wrong silently drops one quote and emits malformed XML, which is exactly
+        // what happened on the first attempt at this function.
+        writeln!(f, "  <rdf:Description rdf:about=\"\"")?;
+        writeln!(f, r#"    xmlns:exif="http://ns.adobe.com/exif/1.0/""#)?;
+        writeln!(f, r#"    exif:GPSVersionID="2.2.0.0""#)?;
+        writeln!(f, r#"    exif:GPSMapDatum="WGS-84""#)?;
+        writeln!(
+            f,
+            r#"    exif:GPSLatitude="{}""#,
+            encode_coordinate(self.fix.lat, 'N', 'S')
+        )?;
+        writeln!(
+            f,
+            r#"    exif:GPSLongitude="{}""#,
+            encode_coordinate(self.fix.lon, 'E', 'W')
+        )?;
+
+        // Omitted entirely rather than defaulted when the track has no elevation.
+        if let Some(ele) = self.fix.ele {
+            writeln!(f, r#"    exif:GPSAltitude="{}""#, encode_altitude(ele))?;
+            writeln!(f, r#"    exif:GPSAltitudeRef="{}""#, altitude_ref(ele))?;
+        }
+
+        writeln!(
+            f,
+            r#"    exif:GPSTimeStamp="{}"/>"#,
+            self.captured.format("%Y-%m-%dT%H:%M:%SZ")
+        )?;
+        writeln!(f, " </rdf:RDF>")?;
+        writeln!(f, "</x:xmpmeta>")?;
+        writeln!(f, r#"<?xpacket end="w"?>"#)
+    }
+}
+
 /// Render the sidecar for one photo.
 ///
 /// Infallible: `captured` is already an absolute instant, so there is no
 /// out-of-range timestamp left to reject. It used to take Unix seconds, which
 /// meant carrying an error case for a value that could not be converted back.
+///
+/// Returns a `String` rather than handing the `Packet` to `write_atomic` to render
+/// straight into the file. That would save one allocation per photo — a few hundred
+/// bytes against a run that moves gigabytes — but it would make `--dry-run` stop
+/// rendering anything at all, since a `Packet` is inert until displayed. `--dry-run`
+/// doing every bit of work except the write is a documented property worth more
+/// than the allocation.
 pub fn render(fix: &Fix, captured: DateTime<Utc>) -> String {
-    let stamp = captured.format("%Y-%m-%dT%H:%M:%SZ");
-
-    // Omitted entirely rather than defaulted when the track has no elevation.
-    let altitude = match fix.ele {
-        Some(ele) => format!(
-            "\n    exif:GPSAltitude=\"{}\"\n    exif:GPSAltitudeRef=\"{}\"",
-            encode_altitude(ele),
-            altitude_ref(ele)
-        ),
-        None => String::new(),
-    };
-
-    // Written as a raw string so the packet's real shape is visible in the source.
-    format!(
-        r#"<?xpacket begin="{bom}" id="W5M0MpCehiHzreSzNTczkc9d"?>
-<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="rawgeotag {version}">
- <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
-  <rdf:Description rdf:about=""
-    xmlns:exif="http://ns.adobe.com/exif/1.0/"
-    exif:GPSVersionID="2.2.0.0"
-    exif:GPSMapDatum="WGS-84"
-    exif:GPSLatitude="{latitude}"
-    exif:GPSLongitude="{longitude}"{altitude}
-    exif:GPSTimeStamp="{stamp}"/>
- </rdf:RDF>
-</x:xmpmeta>
-<?xpacket end="w"?>
-"#,
-        bom = '\u{feff}',
-        version = env!("CARGO_PKG_VERSION"),
-        latitude = encode_coordinate(fix.lat, 'N', 'S'),
-        longitude = encode_coordinate(fix.lon, 'E', 'W'),
-    )
+    Packet { fix, captured }.to_string()
 }
 
 /// Write the packet so an interrupted run cannot leave a half-written sidecar.
@@ -182,6 +226,51 @@ mod tests {
 
         assert_eq!(encode_altitude(-12.345), "12345/1000");
         assert_eq!(altitude_ref(-12.345), 1);
+    }
+
+    /// The whole packet, byte for byte.
+    ///
+    /// Every other test here uses `contains`, which is why they all passed while
+    /// the `Display` rewrite was emitting `rdf:about="` with one quote instead of
+    /// two — malformed XML that only the fixture hashes caught. `contains` proves a
+    /// value reached the output; it cannot prove the document around it is intact.
+    /// If this test fails, diff it against the expected literal before assuming the
+    /// literal is stale.
+    #[test]
+    fn the_packet_is_exactly_this() {
+        let fix = Fix {
+            lat: 47.4455083,
+            lon: -122.3352833,
+            ele: Some(123.456),
+        };
+
+        // One array entry per line of the document, joined — so leading spaces are
+        // literal and there are no continuation escapes to misread.
+        let xmpmeta = format!(
+            r#"<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="rawgeotag {}">"#,
+            env!("CARGO_PKG_VERSION")
+        );
+        let expected = [
+            "<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>",
+            &xmpmeta,
+            r#" <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">"#,
+            "  <rdf:Description rdf:about=\"\"",
+            r#"    xmlns:exif="http://ns.adobe.com/exif/1.0/""#,
+            r#"    exif:GPSVersionID="2.2.0.0""#,
+            r#"    exif:GPSMapDatum="WGS-84""#,
+            r#"    exif:GPSLatitude="47,26.7305N""#,
+            r#"    exif:GPSLongitude="122,20.1170W""#,
+            r#"    exif:GPSAltitude="123456/1000""#,
+            r#"    exif:GPSAltitudeRef="0""#,
+            r#"    exif:GPSTimeStamp="2026-07-28T18:42:03Z"/>"#,
+            " </rdf:RDF>",
+            "</x:xmpmeta>",
+            r#"<?xpacket end="w"?>"#,
+        ]
+        .join("\n")
+            + "\n";
+
+        assert_eq!(render(&fix, captured()), expected);
     }
 
     #[test]
