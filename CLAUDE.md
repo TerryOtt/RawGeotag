@@ -400,10 +400,9 @@ Two NAS shares with opposite roles. Getting this wrong is either slow or damagin
 | Rule | **read anything; create new `.xmp` only. Never delete, never overwrite** — binding constraint 5 | disposable, clobber freely — *except* `rawgeotag-bench`, see below |
 | Size | 11 TB, 3.8 TB free | 3.0 TB, 2.3 TB free (2026-08-01) |
 
-**Stage a working set on `N:\` and iterate there.** One copy off `Q:\` buys every
-subsequent run, and it is the only way to run anything that writes. Never point a
-test, a benchmark, or any `--force` invocation at a folder under `Q:\Lightroom` —
-copy to `N:\` first.
+**Stage a working set on `N:\` before running anything that writes.** That is not
+optional — it is the only way to do trial runs, benchmark sweeps or `--force`
+without touching the archive. Never point those at a folder under `Q:\Lightroom`.
 
 The line to hold: a **real geotagging pass may create new sidecars on `Q:\`**, which
 is the tool's whole purpose and the one write constraint 5 allows. Everything else —
@@ -411,9 +410,46 @@ trial runs, benchmark sweeps, `--force`, anything re-runnable — happens on `N:
 in a temp directory. If a photo on `Q:\` already has a sidecar, it stays as it is;
 the answer is never to overwrite it.
 
-This matters most for **NEF**, a `WholeFile` format: every photo costs a full
-~22 MB read rather than a header seek, which is precisely what HDD RAID6 is worst
-at. The 103 GB NEF sweep against `Q:\` took ~7 minutes of wall clock.
+### Staging for *speed* is a much narrower case than it looks
+
+**The rule: staging pays only when the format reads whole files AND you will read
+them more than once.** Both halves, or it loses. **NEF** satisfies both, so the
+`-j` sweep amortised: `WholeFile` means the copy costs exactly one run's worth of
+I/O, and the sweep re-read the set five times. The 103 GB NEF sweep against `Q:\`
+took ~7 minutes of wall clock, which is what staging avoids.
+
+**CR3 fails both halves, and it is not close.** Do not stage it for performance:
+
+| | |
+|---|---|
+| staging moves | **188 GB** |
+| the run actually reads | **~1.1 GB** — 169x less |
+| stage 188 GB off `Q:\` | **13-25 min** |
+| the run itself | **~13 s** at `-j 20` — so staging costs 58-115x the run |
+
+The "~1.1 GB" is not a guess. 3,883 CR3s resolve in ~0.3 s locally, and 188 GB in
+0.3 s would need **627 GB/s**; the fastest NVMe does ~7. nom-exif therefore touches
+a slice of each file, not the file. Even if reads off `N:\` were *instantaneous*,
+staging loses by two orders of magnitude — and repeated passes do not rescue it,
+since five runs is ~65 s against a 13-minute copy.
+
+**Beware the plausible-sounding argument for staging CR3, because it is half
+right.** CR3 is latency-bound, and `N:\` genuinely has far better latency of the
+kind that matters: both shares sit on the same NAS behind the same 5 Gbps link, so
+SMB round-trip time is identical, but the arrays are not — HDD RAID6 seeks in
+~5-10 ms against NVMe's ~0.1 ms, and a CR3 read is mostly seeks. The measured 25
+files/s cold at `-j 1` is 40 ms per file, far more than LAN round trips explain, so
+platter movement really is in there. Reads off `N:\` would be faster. **It still
+loses**, because the copy has to move 169x the bytes the run will ever look at.
+Partial-read plus single-pass beats any per-read speedup.
+
+There is also a correctness reason not to: **the archive is where the photos live**,
+so timing CR3 against NVMe measures a configuration that never occurs.
+
+**Keep the two rationales separate.** Staging CR3 for *safety* — because the work
+writes, forces, or deletes — is right and required. Staging CR3 for *speed* is
+wrong. Conflating them is how someone talks themselves into a 13-minute copy for a
+performance benefit that does not exist.
 
 **Benchmarking caveats.**
 
