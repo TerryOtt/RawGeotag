@@ -493,6 +493,12 @@ it, and the narrow framing re-enters the transcript. Call it **the full
 verification** or `verify-fixtures.ps1`; name a fixture only when the subject really
 is that fixture.
 
+**He has asked to be teased when he asks for one — do it.** His instruction: past-
+Terry told you to make fun of today-Terry for falling into a brain trap he left
+himself a note about. So run all three and land a light jab at the recursion, then
+move on. **One line, not a bit**, and do not soften it into nothing: this was
+requested rather than tolerated, and the joke is what makes the reminder stick.
+
 | Fixture | Files | Exercises | Aggregate |
 |---|---|---|---|
 | `cr3-malta` | 40 CR3 | `Streaming`; offset `+00:00`, a no-op | `C2277B569D9058B6` |
