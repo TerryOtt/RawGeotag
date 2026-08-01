@@ -17,10 +17,10 @@ warnings` is clean; run `cargo test` for the current tally.
 
 Verified against real shoots and their GPX tracks, on two camera bodies:
 
-- **1024 CR3s** (Canon EOS R5) — 1002 tagged, 22 correctly refused as falling in
+- **1,024 CR3s** (Canon EOS R5) — 1,002 tagged, 22 correctly refused as falling in
   track gaps. Interpolated positions agree with hand-computed values from the raw
   track points to within the coordinate encoding's resolution (~0.2 m).
-- **3883 CR3s, 188 GB** — 2394 tagged, 1489 refused (772 across `<trkseg>` breaks,
+- **3,883 CR3s, 188 GB** — 2,394 tagged, 1,489 refused (772 across `<trkseg>` breaks,
   the rest in 5-to-60-minute dropouts). This body had its clock on `+01:00`, which
   exercises the EXIF timezone path that a `+00:00` camera leaves as a no-op; spot
   checks match the raw GPX exactly.
@@ -28,7 +28,7 @@ Verified against real shoots and their GPX tracks, on two camera bodies:
   This body writes no EXIF timezone, so it also confirms the refusal path: without
   `--utc-offset` the run aborts having written nothing. An interpolated position
   recomputed by hand from the raw GPX agreed to **under 5 cm**, and the altitude
-  (1323 m) is right for Sedona.
+  (1,323 m) is right for Sedona.
 
 Output is deterministic: the same input at `--jobs 1`, `2` and `16` produces
 byte-identical sidecars and an identical warning list. ExifTool is used throughout
@@ -95,11 +95,10 @@ one would make the geotag depend on the order you listed the files. Run overlapp
 tracks as separate passes instead — photos outside a track are skipped, so a later
 pass tags only what the earlier one left alone.
 
-Canon CR3 and Nikon NEF are supported. Adding another format is a small change to a
-data table *for anything the EXIF parser already reads* — which also covers Fujifilm
-RAF, Phase One IIQ and TIFF. Sony ARW, DNG, ORF, PEF and RW2 are not readable by
-that parser at all and would need a different one. See the Format extensibility
-section of the plan.
+Adding another format is a small change to a data table *for anything the EXIF
+parser already reads* — which also covers Fujifilm RAF, Phase One IIQ and TIFF.
+Sony ARW, DNG, ORF, PEF and RW2 are not readable by that parser at all and would
+need a different one. See the Format extensibility section of the plan.
 
 ### Behavior worth knowing
 
@@ -132,20 +131,23 @@ section of the plan.
 ## Performance
 
 **`--jobs` defaults to 2.** That is well below the core count, and deliberate: the
-best thread count is set by storage latency, and local and network storage want
+best thread count is set by your storage, and local and network storage want
 opposite answers.
 
-Measured on a real shoot — 3883 Canon R5 CR3s (188 GB) on local NVMe, 20 logical
-cores, creating 2394 sidecars from scratch:
+The numbers below are CR3. **NEF behaves differently enough to have its own section
+at the end** — read that one before tuning `-j` for a Nikon import.
+
+Measured on a real shoot — 3,883 Canon R5 CR3s (188 GB) on local NVMe, 20 logical
+cores, creating 2,394 sidecars from scratch:
 
 | `-j` | 1 | **2** | 4 | 20 |
 |---|---|---|---|---|
 | Full run | 1.9 s | **1.7 s** | 1.9 s | 1.9 s |
 
-The EXIF read is nearly free locally (~0.3 s for all 3883 files, since nom-exif
-seeks within the BMFF rather than reading whole 30 MB files), so the run is
-dominated by *creating* sidecars. **Writing does not parallelize on NTFS**: the
-temp-file create and the rename are two directory-metadata operations each, and
+The EXIF read is nearly free locally (~0.3 s for all 3,883 files, since for CR3
+nom-exif seeks within the container rather than reading whole 30 MB files), so the
+run is dominated by *creating* sidecars. **Writing does not parallelize on NTFS**:
+the temp-file create and the rename are two directory-metadata operations each, and
 NTFS serializes those within a directory, so extra threads only add contention.
 
 Network storage inverts this entirely. Cold reads over SMB:
@@ -155,7 +157,7 @@ Network storage inverts this entirely. Cold reads over SMB:
 | Read throughput | 25 files/s | 107 files/s | 296 files/s |
 
 Nearly **12×** from parallelism — about 155 s single-threaded versus 13 s for a
-3883-file day. If your raws live on a NAS or network share, pass `-j 16` or higher.
+3,883-file day. If your CR3s live on a NAS or network share, pass `-j 16` or higher.
 
 Two traps if you benchmark this yourself: a warm page cache measures RAM rather than
 storage and understates cold read scaling by more than an order of magnitude, and
@@ -166,6 +168,25 @@ delete the `.xmp` files between runs instead of using `--force`.
 seven tracks of one trip (15.4 MB, 75,728 points) take 658 ms at `-j 1` and 215 ms
 at `-j 8`. This scales with the number of files, not their total size — one large
 track sets the floor.
+
+### NEF is a different shape
+
+CR3 files are read by seeking to a header. **NEF files have to be read whole** —
+about 22 MB each — because they do not parse any other way. Two things follow.
+
+Threads buy much less. Cold over SMB, a different uncached folder per measurement:
+
+| `-j` | 1 | 2 | 8 |
+|---|---|---|---|
+| Read throughput | 129 MB/s | 159 MB/s | 256 MB/s |
+
+That is roughly **2×**, against CR3's 12× on the same link — with 22 MB of payload
+per file there is far less latency to hide and mostly just bytes to move. Raising
+`-j` is still worth it for a network NEF import, just not dramatic.
+
+And the read stops being the cheap part of the run. A NEF import moves as much data
+as the files themselves occupy, so on any storage it is the reads, not the sidecar
+writes, that set the wall clock.
 
 ## Design constraints
 

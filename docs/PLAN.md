@@ -12,7 +12,7 @@ Three constraints shape the design:
 2. **Minimize wall-clock time.** The workload is embarrassingly parallel — each file's outcome depends only on that file and a read-only track index. See Concurrency, which drives several structural decisions rather than being a bolt-on.
 3. **Readable over clever, and no surprises for an experienced Rust reviewer.** Where a choice is between a clever mechanism and an obvious one, take the obvious one. See Format extensibility, where this rules out an entire category of design.
 
-CR3 ships first; the format seam is designed so that any format the EXIF parser already reads is a small, mechanical addition. NEF and the other TIFF-based raws are *not* in that set — see Format extensibility for what they actually cost.
+CR3 shipped first and **Nikon NEF has since been added**, which is what put the format seam under real load; see Format extensibility for what a second format actually cost. The remaining TIFF-based raws (ARW, DNG, ORF, PEF, RW2) are still out of reach, for the reason recorded there.
 
 ## Prerequisite
 
@@ -56,7 +56,7 @@ No remote is configured — this is a local repository unless a GitHub remote is
 rawgeotag <DIR> <EXT> <GPX>... [OPTIONS]
 
   DIR    parent directory, searched recursively
-  EXT    raw extension, e.g. "cr3" (case-insensitive, leading "." tolerated)
+  EXT    raw extension: "cr3" or "nef" (case-insensitive, leading "." tolerated)
   GPX    path to a GPX track file; repeat for a day split across several tracks
 
   --utc-offset <±HHMM>     offset for files with no EXIF timezone, e.g. -0700, +0430
@@ -73,7 +73,7 @@ rawgeotag <DIR> <EXT> <GPX>... [OPTIONS]
 
 Positional order follows the original spec. `--utc-offset` is a flag rather than a fourth positional since it is optional and sign-prefixed.
 
-`EXT` is validated against the known-format table, so an unsupported value fails immediately with a message listing what *is* supported, and `--help` stays self-documenting as formats are added. (If that ever proves too strict — a TIFF-based raw that would have worked but isn't listed — relaxing it is a one-line change, and the better fix is adding the format properly.)
+`EXT` is validated against the known-format table, so an unsupported value fails immediately with a message listing what *is* supported, and `--help` stays self-documenting as formats are added. (An early note here suggested relaxing the check if a TIFF-based raw would have worked but wasn't listed. **Do not** — NEF showed that an unlisted format is more likely to fail at the parse than to quietly work, and it needed a `read_strategy` entry to work at all. The strictness is buying something.)
 
 ## Dependencies
 
@@ -81,7 +81,7 @@ Positional order follows the original spec. `--utc-offset` is a flag rather than
 |---|---|---|
 | `clap` (derive) | 4 | arg parsing |
 | `walkdir` | 2 | recursive traversal |
-| `nom-exif` | 3.6 | **pure-Rust EXIF, with explicit Canon CR3 support** |
+| `nom-exif` | 3.6 | **pure-Rust EXIF; the only crate that reads Canon CR3, and reads NEF from a whole-file buffer** |
 | `gpx` | 0.10 | GPX parsing |
 | `rayon` | 1 | data parallelism |
 | `indicatif` | 0.18 | thread-safe progress bar |
@@ -175,9 +175,11 @@ When two formats end up with identical arms, that is not duplication to factor a
 
 ## Concurrency
 
-**Shape of the work.** Per file: open and parse EXIF (I/O plus modest CPU), binary-search and interpolate (negligible), serialize and write a ~1 KB sidecar (I/O). Expect this to be **I/O-bound, not CPU-bound** — nom-exif seeks within the BMFF container rather than reading whole 30 MB files, so each input costs a few hundred KB of reads. The realistic ceiling is storage, not cores — and *saturating cores turned out not to be the goal at all*. See the measured note below: the default is **2**, not rayon's logical-core count, because on local storage extra threads contend on NTFS directory metadata and make the run slower.
+**Shape of the work.** Per file: open and parse EXIF (I/O plus modest CPU), binary-search and interpolate (negligible), serialize and write a ~1 KB sidecar (I/O). Expect this to be **I/O-bound, not CPU-bound** — for CR3, nom-exif seeks within the BMFF container rather than reading whole 30 MB files, so each input costs a few hundred KB of reads. The realistic ceiling is storage, not cores — and *saturating cores turned out not to be the goal at all*. See the measured note below: the default is **2**, not rayon's logical-core count, because on local storage extra threads contend on NTFS directory metadata and make the run slower.
 
-> **Measured since, and it settles the open question above — in both directions.** There is no single good `--jobs` value; the optimum is set by storage latency. On **local NVMe** the read is nearly free and the run is write-bound, so throughput peaks at **`-j 2`** and degrades above it, because NTFS serializes directory metadata. On **SMB** the read dominates and parallelizes **~12×**, so `-j 16`–`20` is right. The shipped default is therefore **2** (`DEFAULT_JOBS` in `main.rs`), tuned for the common local case, with the flag available for network storage. The prediction that nom-exif seeks within the BMFF rather than reading whole files **did** hold: 3883 CR3s resolve in ~0.3 s locally, impossible if 30 MB were read per file. CLAUDE.md's *Measured behavior* section carries the numbers; do not restate them here, so there is one place to correct.
+> **This shape is per-format, which was not anticipated here.** A `WholeFile` format (NEF) reads every byte of every photo instead of a header, so its reads are bandwidth-bound rather than latency-bound and gain only ~2× from threads where CR3 gains ~12×. The "few hundred KB per input" above is a CR3 statement, not a property of the tool.
+
+> **Measured since, and it settles the open question above — in both directions.** There is no single good `--jobs` value; the optimum is set by storage latency. On **local NVMe** the read is nearly free and the run is write-bound, so throughput peaks at **`-j 2`** and degrades above it, because NTFS serializes directory metadata. On **SMB** the read dominates and parallelizes **~12×**, so `-j 16`–`20` is right. The shipped default is therefore **2** (`DEFAULT_JOBS` in `main.rs`), tuned for the common local case, with the flag available for network storage. The prediction that nom-exif seeks within the BMFF rather than reading whole files **did** hold: 3,883 CR3s resolve in ~0.3 s locally, impossible if 30 MB were read per file. CLAUDE.md's *Measured behavior* section carries the numbers; do not restate them here, so there is one place to correct.
 >
 > **A warm cache will mislead you.** An early sweep that pre-warmed the cache showed reading parallelizing only ~3× and plateauing near 4 threads — that was measuring RAM, not storage, and it understated cold behavior by more than an order of magnitude. Evict, or use untouched data, before quoting read-scaling numbers.
 
@@ -187,9 +189,9 @@ When two formats end up with identical arms, that is not duplication to factor a
 - **Gate (sequential, cheap).** If any file resolved to a naive timestamp with no `--utc-offset` available, print the list and exit non-zero **having written nothing**.
 - **Phase B — interpolate and write (parallel).** `into_par_iter()` over the successful extractions. **One worker task does the entire remainder for one photo** — `track.lookup` interpolates, `xmp::render` serializes, `xmp::write_atomic` writes. Geotagging is *not* a separate phase from writing; the only step split out is the EXIF read. The progress bars say `reading capture times` and `writing sidecars`, which invites the opposite reading — see CLAUDE.md's *Execution shape* section.
 
-The gate is why this is two phases rather than one. Forgetting `--utc-offset` on a body that does not record `OffsetTimeOriginal` would otherwise silently misplace every photo by the offset amount, and discovering that after half the sidecars are on disk is worse than discovering it before any are. In practice the gate rarely fires spuriously: `--utc-offset` applies *only* to naive files, so a mixed-camera shoot where one body records its zone and the other does not is handled correctly with a single flag. The cost of splitting is one `Vec<Extraction>` — a path plus a timestamp or a diagnostic per file. Phase A also yields an exact denominator for the progress bar.
+The gate is why this is two phases rather than one. Forgetting `--utc-offset` on a body that does not record `OffsetTimeOriginal` would otherwise silently misplace every photo by the offset amount, and discovering that after half the sidecars are on disk is worse than discovering it before any are. **This stopped being hypothetical when NEF arrived:** the Nikon D3300 records no `OffsetTimeOriginal` at all, so every one of its files reaches the gate and every NEF run needs the flag. The rule itself lives in `choose_offset` in `raw.rs` and is unit-tested branch by branch. In practice the gate rarely fires spuriously: `--utc-offset` applies *only* to naive files, so a mixed-camera shoot where one body records its zone and the other does not is handled correctly with a single flag. The cost of splitting is one `Vec<Extraction>` — a path plus a timestamp or a diagnostic per file. Phase A also yields an exact denominator for the progress bar.
 
-**The barrier cannot be optimized away.** The gate needs every capture time, and *obtaining* a capture time is itself the expensive operation — the CR3 parse. There is no cheap pre-scan that validates timezones without doing the costly work, so the expensive pass and the gate are inherently the same pass. The barrier costs ~10% of wall clock (reads alone vs. reads plus writes on the 1024-file set), and a fused design would recover only part of that, since writes do not parallelize on NTFS anyway.
+**The barrier cannot be optimized away.** The gate needs every capture time, and *obtaining* a capture time is itself the expensive operation — the raw parse, which for a `WholeFile` format means reading the entire file. There is no cheap pre-scan that validates timezones without doing the costly work, so the expensive pass and the gate are inherently the same pass. The barrier costs ~10% of wall clock (reads alone vs. reads plus writes on the 1,024-file set), and a fused design would recover only part of that, since writes do not parallelize on NTFS anyway.
 
 **Considered and rejected:** when `--utc-offset` *is* supplied, no file can reach `Extraction::NeedsOffset`, so the gate is provably vacuous and the phases could legally fuse into a single pass. That buys a few percent on one code path in exchange for two structurally different execution models to reason about and test. Constraint 3 (readable over clever) wins; do not re-propose it.
 
@@ -231,7 +233,7 @@ let dt = format.capture_tags().iter()           // per-format priority order
 > `DateTimeOriginal` as `Naive` and exposes `OffsetTimeOriginal` as a *separate*
 > `Text("+00:00")` entry; it never merges the two. (It *does* merge them for
 > JPEG, which is why JPEG stand-in fixtures did not catch this — every one of
-> 1024 real CR3s tripped the gate.) The implementation therefore pairs each
+> 1,024 real CR3s tripped the gate.) The implementation therefore pairs each
 > capture tag with its offset tag in `format.rs` and reads both, preferring
 > `.aware()` when present and falling back to the paired offset tag. The
 > precedence rule stated here is unchanged; only the mechanism differs.
@@ -273,7 +275,7 @@ Interpolation details:
 > that. Segment breaks are structural: the logger stopped, so nothing at all is
 > known about the path between.
 >
-> Measured on the 2025-09-17 Malta shoot (1024 CR3s): 1002 tagged, 22 skipped —
+> Measured on the 2025-09-17 Malta shoot (1,024 CR3s): 1,002 tagged, 22 skipped —
 > 10 across a segment break (460 s / 594 m), 9 in a 140 s / 8 m hole, 3 in a
 > 775 s / 27 m hole.
 
@@ -321,14 +323,14 @@ Exit non-zero if any file errored or the gate fired; zero if everything was eith
 1. `cargo build --release`, `cargo clippy -- -D warnings`.
 2. **Unit tests** (`track.rs`, no fixtures needed): exact-timestamp hit; midpoint interpolation against hand-computed values; before-first and after-last both skip; antimeridian crossing stays near ±180; missing `ele` on one bracketing point suppresses altitude.
 3. **Unit test** (`xmp.rs`): a known lat/lon renders to the exact expected `DDD,MM.mmk` strings, including a southern/western hemisphere case and a negative altitude.
-4. **Unit test** (`format.rs`): iterate `RawFormat::ALL` and assert every declared extension round-trips through `from_extension`, in mixed case. This test fails if a new variant is added without a table entry, catching the one gap the compiler cannot.
-5. **End-to-end** on a real CR3 plus its GPX track — *you will need to supply these*. Confirm the sidecar lands next to the raw with the right name. Also pass **two** non-overlapping tracks for one directory and confirm the merged span covers both, then pass two overlapping ones and confirm the run aborts with no sidecars written.
+4. **Unit test** (`format.rs`): iterate `RawFormat::ALL` and assert every declared extension round-trips through `from_extension`, in mixed case. This test fails if a new variant is added without a table entry, catching the one gap the compiler cannot. A second test pins each format's `read_strategy` to the value verified against real files — the compiler cannot tell that a `Streaming`/`WholeFile` choice is wrong, but every file of that format fails at runtime if it is. **Unit test** (`raw.rs`): `choose_offset` over all four combinations of (EXIF zone, `--utc-offset`) — EXIF wins, CLI fills in, disagreement is reported but EXIF still applied, and **neither present refuses the run**. That last one is the gate rule, and it is the branch every Nikon D3300 file takes.
+5. **End-to-end** on a real CR3 plus its GPX track — *you will need to supply these*. Confirm the sidecar lands next to the raw with the right name. Also pass **two** non-overlapping tracks for one directory and confirm the merged span covers both, then pass two overlapping ones and confirm the run aborts with no sidecars written. ✅ Repeated for NEF (Sedona 2019-01-19, 30 files): all tagged, position recomputed by hand from the raw GPX agreed to under 5 cm, and the run refuses everything without `--utc-offset`. **Every new format needs this against real files of that format** — NEF failed in a way no unit test or crate documentation would have revealed.
 6. **Cross-check against ExifTool**, which is installed and is an independent implementation:
    - `exiftool -DateTimeOriginal -OffsetTimeOriginal <file>.cr3` should match what the tool extracted.
    - `exiftool <file>.xmp` should read back the GPS coordinates; compare against the track for that timestamp.
    - This is a test-time sanity check only — no ExifTool call exists anywhere in the shipped program.
-7. **Determinism under parallelism:** ✅ verified 2026-07-31 on 3883 real CR3s at `--jobs 1`, `2` and `16`. All three produced byte-identical console output (excluding the timing line), an identical 1489-line warning list, and an identical SHA-256 manifest over all 2394 sidecars. This is the main regression risk the concurrency design introduces, so **re-run it after any change to the phase structure, the outcome enums, or the reporting order** — it is the check that would catch a worker printing directly, or a tally that depends on completion order.
+7. **Determinism under parallelism:** ✅ verified 2026-07-31 on 3,883 real CR3s at `--jobs 1`, `2` and `16`. All three produced byte-identical console output (excluding the timing line), an identical 1,489-line warning list, and an identical SHA-256 manifest over all 2,394 sidecars. This is the main regression risk the concurrency design introduces, so **re-run it after any change to the phase structure, the outcome enums, or the reporting order** — it is the check that would catch a worker printing directly, or a tally that depends on completion order.
 
    **Re-run the same day** after the gate's selection logic was extracted into `files_needing_offset()`. All three job counts agreed with each other *and* reproduced the pre-extraction output byte for byte, which is the stronger result — the refactor did not merely stay self-consistent. Two lessons worth keeping: extracting a function that owns a `sort` is exactly the change this check exists to police, and a careless `sed` during that work silently removed the unrelated sort in `collect_paths` as well, which nothing but this check would have caught before release. **When re-running, also diff against the previous run's artifacts, not just across job counts** — a bug that reorders output consistently at every `-j` passes the cross-job comparison and fails the historical one.
-8. **Scaling:** ✅ done — see the measured note under Concurrency. **Do not expect more threads to be faster.** On local storage throughput *peaks at `-j 2` and degrades above it*, which is why that is the default; a slowdown at `-j 8` is the expected result, not a bug. Over network storage the opposite holds and parallelism is worth ~12×. If you re-measure, evict the page cache first and delete existing sidecars, or you will be timing RAM and cheap overwrites rather than the real workload.
+8. **Scaling:** ✅ done — see the measured note under Concurrency. **Do not expect more threads to be faster.** On local storage throughput *peaks at `-j 2` and degrades above it*, which is why that is the default; a slowdown at `-j 8` is the expected result, not a bug. Over network storage the opposite holds and parallelism is worth ~12× — **for CR3**. A `WholeFile` format is bandwidth-bound instead and gains only ~2×, so re-measure per format rather than assuming these transfer. If you re-measure, evict the page cache first and delete existing sidecars, or you will be timing RAM and cheap overwrites rather than the real workload.
 9. **Behavior checks:** re-run and confirm existing sidecars are skipped with warnings; re-run with `--force` and confirm overwrite; `--dry-run` writes nothing; a deliberately wrong `--utc-offset` against a CR3 that has `OffsetTimeOriginal` fires the conflict warning *and still uses the EXIF value*; omitting `--utc-offset` on naive-timestamp files trips the gate with no sidecars written.

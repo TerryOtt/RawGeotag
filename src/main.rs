@@ -41,7 +41,7 @@ use crate::track::{Fix, GapLimits, Lookup, Track};
 /// Default worker count, tuned for the common case: raws on a local SSD.
 ///
 /// Counter-intuitively this is far below the core count. On local storage the
-/// EXIF read is nearly free (~0.3 s for 3883 CR3s) and the run is dominated by
+/// EXIF read is nearly free (~0.3 s for 3,883 CR3s) and the run is dominated by
 /// *creating* sidecars, which are NTFS directory-metadata operations that NTFS
 /// serializes within a directory. Extra threads there only add contention, so
 /// throughput peaks at 2 and degrades above it — measured both warm and cold.
@@ -72,7 +72,7 @@ struct Args {
     /// Parent directory, searched recursively
     dir: PathBuf,
 
-    /// Raw extension, e.g. "cr3" (case-insensitive, leading "." tolerated)
+    /// Raw extension: "cr3" or "nef" (case-insensitive, leading "." tolerated)
     ext: String,
 
     /// Path to the GPX track file. Repeat for a day split across several tracks
@@ -160,7 +160,7 @@ fn run() -> Result<Outcome> {
         // photo falling in one is skipped like any other gap.
         println!(
             "Track: {} points from {} file(s), {} to {}",
-            track.point_count(),
+            count(track.point_count()),
             args.gpx.len(),
             format_utc(track_start),
             format_utc(track_end)
@@ -191,7 +191,7 @@ fn run() -> Result<Outcome> {
     if !needs_offset.is_empty() {
         eprintln!(
             "error: {} file(s) have a capture time with no timezone, and no --utc-offset was given:",
-            needs_offset.len()
+            count(needs_offset.len())
         );
         for path in &needs_offset {
             eprintln!("  {}", path.display());
@@ -413,8 +413,9 @@ fn write_sidecar(photo: &Photo, track: &Track, args: &Args) -> WrittenKind {
             };
             return WrittenKind::InGap {
                 description: format!(
-                    "falls in a track gap of {}s / {:.0} m{reason}",
-                    gap.seconds, gap.meters
+                    "falls in a track gap of {}s / {} m{reason}",
+                    thousands(gap.seconds),
+                    thousands(gap.meters.round() as i64)
                 ),
             };
         }
@@ -539,19 +540,25 @@ fn print_summary(summary: &Summary) {
 
     let mut reasons = Vec::new();
     if summary.outside_track > 0 {
-        reasons.push(format!("{} outside track", summary.outside_track));
+        reasons.push(format!("{} outside track", count(summary.outside_track)));
     }
     if summary.in_gap > 0 {
-        reasons.push(format!("{} in track gap", summary.in_gap));
+        reasons.push(format!("{} in track gap", count(summary.in_gap)));
     }
     if summary.sidecar_exists > 0 {
-        reasons.push(format!("{} existing sidecar", summary.sidecar_exists));
+        reasons.push(format!(
+            "{} existing sidecar",
+            count(summary.sidecar_exists)
+        ));
     }
     if summary.no_capture_time > 0 {
-        reasons.push(format!("{} no capture time", summary.no_capture_time));
+        reasons.push(format!(
+            "{} no capture time",
+            count(summary.no_capture_time)
+        ));
     }
     if summary.failed > 0 {
-        reasons.push(format!("{} errored", summary.failed));
+        reasons.push(format!("{} errored", count(summary.failed)));
     }
 
     let rate = if summary.elapsed > 0.0 {
@@ -560,14 +567,17 @@ fn print_summary(summary: &Summary) {
         0.0
     };
 
+    // Widened from 5 to 7 to keep the column aligned once separators are in: a
+    // seven-figure count still fits, and nobody has that many raws in one tree.
     println!();
     println!(
-        "Scanned  {:>5} .{} files",
-        summary.scanned, summary.extension
+        "Scanned  {:>7} .{} files",
+        count(summary.scanned),
+        summary.extension
     );
     println!(
-        "Tagged   {:>5}{}",
-        summary.tagged,
+        "Tagged   {:>7}{}",
+        count(summary.tagged),
         if summary.dry_run {
             "   (dry run — nothing written)"
         } else {
@@ -575,12 +585,46 @@ fn print_summary(summary: &Summary) {
         }
     );
     if skipped > 0 {
-        println!("Skipped  {:>5}   {}", skipped, reasons.join(", "));
+        println!("Skipped  {:>7}   {}", count(skipped), reasons.join(", "));
     }
     println!(
-        "Elapsed  {:>5.1}s  ({rate:.0} files/sec, {} threads)",
-        summary.elapsed, summary.threads
+        "Elapsed  {:>7.1}s  ({} files/sec, {} threads)",
+        summary.elapsed,
+        thousands(rate.round() as i64),
+        summary.threads
     );
+}
+
+/// `thousands` for the `usize` counts the summary deals in.
+fn count(value: usize) -> String {
+    thousands(value as i64)
+}
+
+/// Format an integer with US thousands separators: `3883` → `3,883`.
+///
+/// Written out rather than pulled from a crate: it is a dozen lines with no
+/// locale surface, and a crate that did this properly would bring localization
+/// machinery this program has no use for.
+fn thousands(value: i64) -> String {
+    let text = value.to_string();
+    let (sign, digits) = match text.strip_prefix('-') {
+        Some(rest) => ("-", rest),
+        None => ("", text.as_str()),
+    };
+
+    let mut out = String::with_capacity(sign.len() + digits.len() + digits.len() / 3);
+    out.push_str(sign);
+
+    for (i, digit) in digits.char_indices() {
+        // A separator precedes any digit an exact multiple of three from the
+        // right — except a leading one, which would render as ",123".
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(digit);
+    }
+
+    out
 }
 
 fn format_utc(ts: i64) -> String {
@@ -674,6 +718,33 @@ mod tests {
                 Path::new("/photos/c.cr3"),
             ]
         );
+    }
+
+    #[test]
+    fn numbers_are_grouped_in_threes_from_the_right() {
+        assert_eq!(thousands(0), "0");
+        assert_eq!(thousands(999), "999");
+        assert_eq!(thousands(1_000), "1,000");
+        assert_eq!(thousands(3_883), "3,883");
+        assert_eq!(thousands(75_728), "75,728");
+        assert_eq!(thousands(102_753), "102,753");
+        assert_eq!(thousands(1_234_567), "1,234,567");
+    }
+
+    #[test]
+    fn grouping_boundaries_do_not_produce_a_leading_separator() {
+        // The off-by-one to watch for: a count whose length is an exact multiple
+        // of three must not render as ",100" or ",100,000".
+        assert_eq!(thousands(100), "100");
+        assert_eq!(thousands(100_000), "100,000");
+    }
+
+    #[test]
+    fn negative_values_keep_the_sign_outside_the_grouping() {
+        // Counts are never negative, but the gap description also formats
+        // differences, so the sign must not be grouped as if it were a digit.
+        assert_eq!(thousands(-1_000), "-1,000");
+        assert_eq!(thousands(-999), "-999");
     }
 
     #[test]

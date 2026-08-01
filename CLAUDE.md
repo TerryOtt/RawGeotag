@@ -23,11 +23,14 @@ accuracy — never clamp, extrapolate, or bridge a hole to raise the tagged coun
    appear in shipped code.
 
 2. **Optimize for wall-clock time.** The workload is embarrassingly parallel and is
-   I/O-bound, not CPU-bound. **Match the thread count to storage latency, not to
-   core count** — "keep all cores busy" is actively wrong here, and `--jobs`
-   defaults to 2 for that reason (see *Measured behavior*). Do not introduce
-   shared mutable state on the hot path, and never share a `MediaParser` across
-   threads behind a mutex — use rayon's `map_init` for per-worker parsers.
+   I/O-bound, not CPU-bound. **Match the thread count to the storage, not to core
+   count** — "keep all cores busy" is actively wrong here, and `--jobs` defaults to
+   2 for that reason (see *Measured behavior*). Note that *what* the storage limit
+   is depends on the format: a `Streaming` format like CR3 is latency-bound and
+   gains ~12x from threads over SMB, while a `WholeFile` format like NEF is
+   bandwidth-bound and gains only ~2x. Do not introduce shared mutable state on the
+   hot path, and never share a `MediaParser` across threads behind a mutex — use
+   rayon's `map_init` for per-worker parsers.
 
 3. **Readable and maintainable over clever.** Strive not to violate the principle
    of least surprise for an experienced Rust developer reviewing this codebase.
@@ -58,10 +61,11 @@ before *any* sidecar is written. That requirement, and nothing else, forces the
 barrier.
 
 **Why it cannot be fused away.** The gate needs the capture time, and obtaining the
-capture time *is* the expensive operation — a ~30 MB CR3 parse. There is no cheap
-pre-scan that validates timezones without doing the costly work, so the barrier
-cannot be moved earlier or made cheaper. The expensive pass and the gate are
-inherently the same pass.
+capture time *is* the expensive operation — parsing a raw file, which for a
+`WholeFile` format means reading all ~22 MB of it. There is no cheap pre-scan that
+validates timezones without doing the costly work, so the barrier cannot be moved
+earlier or made cheaper. The expensive pass and the gate are inherently the same
+pass.
 
 **What the barrier costs.** The lost overlap between reading and writing, which is
 bounded by whichever phase is shorter — so it is ~10% over SMB (Malta: 3.0 s of reads
@@ -103,6 +107,13 @@ risk concentrates in the `0.x` crates: `gpx`, `chrono`, `time`, `indicatif`.
 
 - Sidecar naming: `IMG_1234.CR3` → `IMG_1234.xmp` (Adobe convention, extension replaced).
 - Timezone: EXIF `OffsetTimeOriginal` wins over `--utc-offset`; warn on conflict.
+  Neither one present means the run is refused — that rule lives in `choose_offset`
+  in `raw.rs` and is unit-tested branch by branch, including the refusal.
+- **Formats are an enum plus a data table.** Each format declares which extensions
+  select it, which capture tags to try, and — added when NEF arrived —
+  `read_strategy`, whether the parser gets a streaming handle or the whole file.
+  That third one is what a second format actually cost; see the NEF section for why
+  it is not optional.
 - Photos outside the track are skipped and reported — no clamping, no
   extrapolation, no tolerance window. With several GPX files that means outside the
   *union* of them; a photo landing in the seam between two files is a gap, not an
@@ -134,17 +145,19 @@ is clean. (No count here on purpose — it went stale three times; `cargo test` 
 authoritative answer.) Toolchain on this machine: Rust 1.97.1 MSVC, with the VS Build Tools C++
 workload installed.
 
-**Verified against four real shoots**, all Canon EOS R5.
+**Verified against five real shoots on two bodies** — four Canon EOS R5 (CR3) and
+one Nikon D3300 (NEF). The NEF run is written up under *NEF, and why
+`read_strategy` exists*; the four CR3 shoots follow.
 
-*Malta 2025-09-17* (`Q:\Lightroom\Images\2025\2025-09-17`, 1024 files, with
-`2025-09-17 - Malta Car Tour.gpx`): 1002 resolve and tag, ~3.0 s over SMB. The 22 skips
+*Malta 2025-09-17* (`Q:\Lightroom\Images\2025\2025-09-17`, 1,024 files, with
+`2025-09-17 - Malta Car Tour.gpx`): 1,002 resolve and tag, ~3.0 s over SMB. The 22 skips
 are **three distinct holes, not one** — 10 across a segment break (460 s / 594 m), 9 in
 a 140 s / 8 m hole, 3 in a 775 s / 27 m hole. The 140 s / 8 m cluster is exactly what
 the two-limit rule exists for: 8 m clears the distance limit easily and only the time
 limit rejects it.
 
-*Canadian Rockies 2022-09-27* (3883 files, 188 GB, local NVMe, with `2022-09-27- Peyto
-Lake, Bow Lake, Yoho.gpx`): 2394 tag, 1489 skip, 772 of those across `<trkseg>` breaks.
+*Canadian Rockies 2022-09-27* (3,883 files, 188 GB, local NVMe, with `2022-09-27- Peyto
+Lake, Bow Lake, Yoho.gpx`): 2,394 tag, 1,489 skip, 772 of those across `<trkseg>` breaks.
 This body's clock was on **`+01:00`**, so unlike the 2025 trips it actually exercises
 the EXIF offset conversion instead of a no-op. Spot-checked against the raw GPX on an
 exact-hit photo: longitude and altitude identical to the track point.
@@ -156,11 +169,11 @@ matched the raw track point exactly.
 
 *Malta/Sorrento multi-track, 2025-09* — the first real exercise of **multiple GPX
 files**. All seven tracks in `Q:\Photo GPX Tracks\2025\2025-09 - Malta, Sorrento` were
-passed to each of the four photo folders that exist (`09-17/18/19/21`), writing 1967
-new sidecars: 95/95, 297/297, 1575/1689, and 09-17 already done. Passing every track to
+passed to each of the four photo folders that exist (`09-17/18/19/21`), writing 1,967
+new sidecars: 95/95, 297/297, 1,575/1,689, and 09-17 already done. Passing every track to
 every folder is the safe idiom here — the tracks are disjoint in time, so each photo
 matches whichever one covers it and **nothing depends on pairing a filename to a folder
-name**. The 114 skips on 09-21 were 108 across a 2122 s / 844 m segment break and 6 in
+name**. The 114 skips on 09-21 were 108 across a 2,122 s / 844 m segment break and 6 in
 a 100 s / 189 m hole. Six sidecars spot-checked against the raw GPX agreed to **under
 0.11 m**, all exact-timestamp hits (the logger samples at 1 Hz, so most photos land on
 a recorded point and are never interpolated at all).
@@ -176,7 +189,7 @@ floor on any agreement these checks can demonstrate. ExifTool reads the sidecars
 correctly and `-validate` is OK.
 
 **Output is deterministic** — same input at `--jobs 1`, `2` and `16` produced
-byte-identical sidecars and identical warning lists over the 3883-file set. Re-run
+byte-identical sidecars and identical warning lists over the 3,883-file set. Re-run
 that check after any change to the phase structure, the outcome enums, reporting
 order, or the GPX load path (which is parallel too, see below).
 
@@ -199,6 +212,10 @@ with `OffsetTimeOriginal`, `CreateDate` with `OffsetTimeDigitized`) and `raw.rs`
 prefers `.aware()` when present, falling back to the paired tag. **Test any new
 format against a real file of that format**; JPEG stand-ins do not exercise this path.
 
+NEF has since proved that rule twice over: it also returns `Naive`, it carries *no*
+offset tag at all on a D3300, and it does not even parse through the source CR3 uses.
+None of that was visible from the crate's documentation — only from real files.
+
 Beware also that ExifTool reports CR3 `CreateDate` in *local machine time* from the
 BMFF container, which differs from the EXIF `DateTimeOriginal`. Compare against
 `DateTimeOriginal`, not `CreateDate`, when sanity-checking by hand.
@@ -216,7 +233,8 @@ more specific than yes or no:
 | Files carrying `OffsetTimeOriginal` | **0 of 150** |
 
 The streaming failure is `malformed ifd entry: parse ifd entry header failed:
-Incomplete(Size(169858))`: that path reports a need-more-bytes condition as
+Incomplete(Size(169858))` — quoted verbatim so it stays greppable, hence no
+separator: that path reports a need-more-bytes condition as
 malformed data rather than asking for more bytes, so the buffer never grows. In
 memory mode every byte is already present, so it never arises. **Do not "simplify"
 `read_strategy` away by using `from_memory` everywhere** — it would make every CR3
@@ -239,7 +257,7 @@ Three consequences, all load-bearing:
    deliberately cannot pair against it.
 3. **This camera's clock was on UTC.** Sedona 2019-01-19: naive EXIF 20:52 with
    `--utc-offset +0000` lands inside a track running 20:48:50-21:40:34 Z, and the
-   resulting coordinates are in Sedona at 1323 m. Do not generalize it — read the
+   resulting coordinates are in Sedona at 1,323 m. Do not generalize it — read the
    span and compare, exactly as with the R5 bodies.
 
 **Verified end to end** (Sedona 2019-01-19, 30 NEFs against that day's track): 30
@@ -247,25 +265,70 @@ of 30 tagged; the run refuses everything without `--utc-offset`; an interpolated
 position recomputed by hand from the raw GPX agreed to **under 5 cm** (31 s / 1.2 m
 bracketing gap); ExifTool `-validate` OK; byte-identical output at `-j 1, 2, 8, 16`.
 
+## Storage on this machine: `Q:\` and `N:\` are not interchangeable
+
+Two NAS shares with opposite roles. Getting this wrong is either slow or damaging.
+
+| | `Q:\` | `N:\` |
+|---|---|---|
+| Array | **HDD RAID6** — seek-bound, slow | **NVMe RAID10** — fast |
+| Holds | `Q:\Lightroom\Images\<year>\<date>` and `Q:\Photo GPX Tracks\<year>` | nothing that matters |
+| Rule | **treat as the archive: do not write to it while developing** | disposable, clobber freely |
+| Size | 11 TB, 3.8 TB free | 3.0 TB, 2.3 TB free (2026-08-01) |
+
+**Stage a working set on `N:\` and iterate there.** One copy off `Q:\` buys every
+subsequent run. Never point a test, a benchmark, or a `--force` experiment at a
+folder under `Q:\Lightroom` — copy first.
+
+The distinction to keep straight: *the tool's whole purpose* is writing sidecars
+next to raws, so a **real geotagging pass the user asks for does write into
+`Q:\`**. What does not belong there is development output — trial runs, benchmark
+sweeps, anything re-runnable. Those go to `N:\` or a temp directory.
+
+This matters most for **NEF**, a `WholeFile` format: every photo costs a full
+~22 MB read rather than a header seek, which is precisely what HDD RAID6 is worst
+at. The 103 GB NEF sweep against `Q:\` took ~7 minutes of wall clock.
+
+**Benchmarking caveats.**
+
+- **Do not overwrite the recorded throughput figures with `N:\` numbers.** Everything
+  in *Measured behavior* below — CR3 25→296 files/s, NEF 129/159/256 MB/s — describes
+  **HDD RAID6 over SMB**, which is the situation a user with a spinning NAS actually
+  has. `N:\` results are a separate row, not a correction.
+- **The warm-cache rule still applies on NVMe.** Re-reading one staged folder is
+  served by the SMB client cache however fast the array is, so a distinct file set
+  per measurement is still required.
+
+**Harness note.** Drive access is gated by Claude Code's directory permissions, not
+just the OS. A fresh session or a subagent fork may be limited to the repo directory
+and see both shares blocked, while `df -h` still lists them (`/q`, `/n`) because it
+targets no path. `/add-dir N:\` grants it.
+
 ## Measured behavior worth not rediscovering
 
 **`--jobs` defaults to 2, deliberately, and that is not a typo.** The optimum depends
-entirely on storage latency, and the two cases point in opposite directions:
+on the storage, and the two cases point in opposite directions:
 
 | | read phase | best `-j` | why |
 |---|---|---|---|
-| **Local NVMe** | ~0.3 s / 3883 CR3s — nearly free | **2** | run is write-bound; NTFS serializes directory metadata, so threads contend |
+| **Local NVMe** | ~0.3 s / 3,883 CR3s — nearly free | **2** | run is write-bound; NTFS serializes directory metadata, so threads contend |
 | **SMB / network** | dominates the run | **16-20** | latency-bound; threads keep requests in flight |
 
-Local NVMe, full workflow on 3883 files creating 2394 sidecars — `-j 2` measured
-~1470 ms warm and ~1723 ms cold, against ~1790-1850 ms at `-j 20` and ~1640-1920 ms
+**Everything in this section was measured on CR3 and holds for `Streaming` formats
+only.** A `WholeFile` format moves the bottleneck from latency to bandwidth and the
+advice changes with it — see the NEF section above before tuning `-j` for one.
+
+Local NVMe, full workflow on 3,883 files creating 2,394 sidecars — `-j 2` measured
+~1,470 ms warm and ~1,723 ms cold, against ~1,790-1,850 ms at `-j 20` and ~1,640-1,920 ms
 at `-j 1`. `-j 2` won at min, median and max, warm *and* cold, so it is not noise.
 
-Cold SMB read throughput: **25 files/s at `-j 1`, 107 at `-j 4`, 296 at `-j 20`** —
-nearly **12x** from parallelism. Projected onto a 3883-file day that is ~155 s
-single-threaded versus ~13 s. This is why the rayon design stays even though the
-local case gains nothing from it: dropping threads would optimize the case that is
-already under two seconds and wreck the case that takes minutes.
+Cold SMB read throughput, **CR3**: **25 files/s at `-j 1`, 107 at `-j 4`, 296 at
+`-j 20`** — nearly **12x** from parallelism. Projected onto a 3,883-file day that is
+~155 s single-threaded versus ~13 s. This is why the rayon design stays even though
+the local case gains nothing from it: dropping threads would optimize the case that
+is already under two seconds and wreck the case that takes minutes. (NEF over the
+same link scales ~2x, not 12x — the files/s figures here do not transfer between
+formats, because a CR3 "file read" is a few hundred KB and a NEF one is 22 MB.)
 
 **Warm benchmarks lie here.** An earlier sweep with a cache warm-up showed reading
 parallelizing only ~3x and plateauing near 4 threads; that measured RAM, not storage.
@@ -273,7 +336,7 @@ Always evict or use untouched data before quoting read-scaling numbers.
 
 **GPX parsing is a serial-feeling cost that turned out to be worth parallelizing.**
 Seven tracks of one trip (15.4 MB, 75,728 points) took ~700 ms to parse — comparable
-to an entire local 3883-file run — and all of it lands before a single photo is
+to an entire local 3,883-file run — and all of it lands before a single photo is
 touched. `Track::load` now parses the files with `par_iter`: **658 ms at `-j 1`,
 390 at the `-j 2` default, 269 at `-j 4`, 215 at `-j 8`.** It scales with *file
 count*, not total bytes — the floor is the largest single file, ~170 ms for a 4 MB
