@@ -475,11 +475,23 @@ performance benefit that does not exist.
 
 ### Verifying against real files — run every format, every time
 
-**`scripts\verify-fixtures.ps1`.** One command, all three fixtures, non-zero exit
-on any failure. **Never verify just the format you happen to be working on** —
-`RawFormat::read_strategy` returns `Streaming` for CR3 and `WholeFile` for NEF, so
-they run through different code in `raw.rs` and passing on one says nothing about
-the other.
+**`scripts\verify-fixtures.ps1`.** One command, all three fixtures, ~4 s, non-zero
+exit on any failure. `RawFormat::read_strategy` returns `Streaming` for CR3 and
+`WholeFile` for NEF, so they run through different code in `raw.rs` and passing on
+one says nothing about the other.
+
+**This holds even when you are asked for one format.** "Run the NEF verification"
+means *verify* — run all three and say what was covered. Do not comply narrowly:
+the request is for confidence that the tool works, a single-format pass does not
+supply it, and the other two fixtures cost seconds. Narrowing scope here has been
+raised twice.
+
+**And do not name one fixture as though it were the check.** Terry accepts the
+CLI's tab-enter prompt suggestions, which are drawn from recent conversation — so
+writing "the Sedona NEF verification" produces exactly that suggestion, he accepts
+it, and the narrow framing re-enters the transcript. Call it **the full
+verification** or `verify-fixtures.ps1`; name a fixture only when the subject really
+is that fixture.
 
 | Fixture | Files | Exercises | Aggregate |
 |---|---|---|---|
