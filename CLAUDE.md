@@ -368,14 +368,43 @@ Note ExifTool calls the XMP `exif:GPSTimeStamp` property **`GPSDateTime`**; aski
 for `GPSTimeStamp` on a sidecar returns nothing, which is a naming difference, not a
 bug.
 
-## The XMP we emit — measured against Lightroom's own, and settled
+## The XMP we emit — measured against Lightroom's own, settled as of 15.4.1
 
-**Closed on 2026-08-01 against Lightroom Classic 15.4.1. The packet is not changing.
-Do not re-open it.** The evidence is a same-photo, same-track diff, not an argument
-about the spec, so there is no better test available to a future session — repeating it
-would produce these numbers again. If you find yourself drafting a proposal to restyle
-the packet to look more like Lightroom's, that is the shape of the mistake; the answer
-is below and it is no.
+> **Mantra: the latest Lightroom XMP format is our gold standard.** Lightroom is the
+> consumer of everything this tool writes, so whatever current Lightroom emits is the
+> definition of correct. We are not chasing the XMP spec, which is loose enough that
+> conforming to it proves very little; we are chasing whatever Lightroom will read
+> without complaint today.
+
+**Closed on 2026-08-01 against Lightroom Classic 15.4.1** — but closed *against a
+version*, not for all time. **The one thing that reopens it is Lightroom changing what
+it emits.** On a major Lightroom upgrade, re-run the exercise and follow whatever it
+does now; the recipe is below and costs an hour.
+
+Until then, do not re-open it on argument alone. The evidence is a same-photo,
+same-track diff rather than a reading of the spec, so a session that repeats it against
+15.4.1 will produce these numbers again.
+
+**A Lightroom change is the *only* thing that justifies changing the packet.** Not
+spec-purity, not tidiness, not more precision, not a nicer-looking document, not a new
+crate that renders XMP — **none of those are reasons, and a proposal resting on one is
+answered by this sentence.** The bar is evidence that current Lightroom emits or expects
+something different from what it emitted at 15.4.1.
+
+And even then only for a difference *in kind*. **Lightroom merely not writing a property
+we write is not a change to follow.** It already omits `GPSMapDatum`, `GPSTimeStamp` and
+`GPSAltitudeRef`, and has since 2019; all three are valid `exif:` properties that
+ExifTool emits and Lightroom ingests without complaint. Deleting ours to match would
+cost information and buy nothing. The mantra is about *compatibility, not mimicry* — the
+goal is zero heartburn for Lightroom, not a byte-identical forgery. **Additive-and-valid
+is not a difference worth closing; different-in-kind is.**
+
+**The recipe is versioned: [`docs/LIGHTROOM-XMP.md`](docs/LIGHTROOM-XMP.md).** It has
+the staging script, the Lightroom steps, the timezone trap per format, the questions to
+ask, and the recorded answers for 15.4.1 and the two earlier eras. It is in the repo
+rather than only in `N:\lr-xmp-compare\` for the same reason the fixture harness is —
+findings are worth nothing once the method that produced them is gone, and the staged
+copy sits on disposable storage.
 
 **The workflow this tool serves is: geotag first, import into Lightroom second.** That
 ordering is not just convenience — it is the only window in which no Lightroom sidecar
