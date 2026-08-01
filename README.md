@@ -184,6 +184,13 @@ That is roughly **2×**, against CR3's 12× on the same link — with 22 MB of p
 per file there is far less latency to hide and mostly just bytes to move. Raising
 `-j` is still worth it for a network NEF import, just not dramatic.
 
+Faster storage does not change that conclusion; it sharpens it. Repeated against an
+NVMe array on the same network, throughput ran 375 MB/s at `-j 1` to 517 MB/s at
+`-j 16` — better in absolute terms, but only **1.4×** from threads, because at that
+rate the bottleneck has moved off the disk and onto the network link. `-j 4` was
+within 6% of the best result. **The faster your storage, the less `-j` buys you on
+NEF**, until the wire is the limit.
+
 And the read stops being the cheap part of the run. A NEF import moves as much data
 as the files themselves occupy, so on any storage it is the reads, not the sidecar
 writes, that set the wall clock.

@@ -295,9 +295,31 @@ at. The 103 GB NEF sweep against `Q:\` took ~7 minutes of wall clock.
   in *Measured behavior* below — CR3 25→296 files/s, NEF 129/159/256 MB/s — describes
   **HDD RAID6 over SMB**, which is the situation a user with a spinning NAS actually
   has. `N:\` results are a separate row, not a correction.
-- **The warm-cache rule still applies on NVMe.** Re-reading one staged folder is
-  served by the SMB client cache however fast the array is, so a distinct file set
-  per measurement is still required.
+- **Stage distinct file sets per measurement anyway**, even though the check below
+  found no caching: it costs nothing and the assumption could change with file size.
+
+**NEF read sweep on `N:\`** — 200 files (~4.3 GB) per run, a separate staged set per
+job count, `--dry-run`:
+
+| `-j` | 1 | 2 | 4 | 8 | 16 |
+|---|---|---|---|---|---|
+| `N:\` NVMe RAID10 | 375 MB/s | 433 | 486 | **511** | 517 |
+| `Q:\` HDD RAID6 | 129 MB/s | 159 | — | 256 | — |
+
+**The interesting part is that the faster array scales *worse*.** `N:\` is ~2.9x
+`Q:\` single-threaded, but gains only **1.4x** from threads where `Q:\` gains ~2x —
+because at 517 MB/s it is running at 83% of the **5 Gbps link** (~625 MB/s ceiling)
+and there is nothing left to win. The bottleneck has moved off the disk and onto the
+wire. Practical upshot: **`-j 4` already gets 94% of the best result on `N:\`**;
+pushing higher buys ~6%.
+
+*Methodology, since these numbers are only worth what the method is:* the 625 MB/s
+line rate doubles as a cache detector — any result above it came from RAM. None did.
+Three independent `-j 1` runs gave **362 / 368 / 375 MB/s**, and the oldest- and
+newest-staged sets differed by 1.6%, so neither staging recency nor re-reading put
+these files in cache. 4.3 GB reads over SMB are evidently not retained despite 63.7 GB
+of RAM. That control is what makes the sweep trustworthy; re-run it before believing
+a future sweep.
 
 **Harness note.** Drive access is gated by Claude Code's directory permissions, not
 just the OS. A fresh session or a subagent fork may be limited to the repo directory
