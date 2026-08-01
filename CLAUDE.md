@@ -114,6 +114,14 @@ risk concentrates in the `0.x` crates: `gpx`, `chrono`, `time`, `indicatif`.
   `read_strategy`, whether the parser gets a streaming handle or the whole file.
   That third one is what a second format actually cost; see the NEF section for why
   it is not optional.
+- **Numbers ≥ 1,000 carry US thousands separators — in program output *and* in
+  prose here.** Any new user-facing number goes through `thousands()` in `main.rs`
+  (or `count()`, its `usize` wrapper); do not `println!` a bare count. Summary
+  columns are width 7 to fit the separators, so widen rather than drop them. Four
+  things stay unseparated, deliberately: Rust numeric literals (which use `_`),
+  text quoted verbatim from another tool so it stays greppable — the nom-exif
+  `Incomplete(Size(169858))` error is the live example — and years, model numbers,
+  UTC offsets and coordinate encodings, none of which are quantities.
 - Photos outside the track are skipped and reported — no clamping, no
   extrapolation, no tolerance window. With several GPX files that means outside the
   *union* of them; a photo landing in the seam between two files is a gap, not an
