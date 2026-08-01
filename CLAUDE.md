@@ -595,7 +595,7 @@ on the storage, and the two cases point in opposite directions:
 
 | | read phase | best `-j` | why |
 |---|---|---|---|
-| **Local NVMe** | ~0.3 s / 3,883 CR3s — nearly free | **2** | run is write-bound; NTFS serializes directory metadata, so threads contend |
+| **Local NVMe** | ~0.3 s / 3,883 CR3s — nearly free | **2** | run is write-bound; NTFS serializes creates *within one directory*, so threads contend — but see the sidecar-writes section: a recursive run spanning many folders lifts this |
 | **SMB / network** | dominates the run | **16-20** | latency-bound; threads keep requests in flight |
 
 **Everything in this section was measured on CR3 and holds for `Streaming` formats
@@ -635,13 +635,50 @@ the default stays 2. Everything after the parse runs in argument order — segme
 ids, which of several bad files is reported, the overlap message — so none of this
 is visible in output at any `-j`.
 
-Sidecar *writing* does not parallelize at all on NTFS — temp-create plus rename
-(via `tempfile`) are two directory metadata operations per file and NTFS serializes
-those within a directory. Note also that *creating* a new sidecar costs ~2.3x
-*overwriting* an existing one, so a `--force` re-run is not a valid benchmark of a
-fresh import; delete the `.xmp` files first — **on a staged copy under `N:\`, never
-on `Q:\` and never a Lightroom sidecar** (constraints 5 and 6; that is the whole
-reason staging exists). Do not "fix" any of this by dropping the atomic write.
+### Sidecar writes: the bottleneck is the directory, not the atomic write
+
+**Do not drop the atomic write to make writes parallelize. It is not what stops them
+parallelizing.** Measured directly on local `C:\` NTFS — 2,000 sidecar-sized files,
+min of 3 trials, `tempfile`+rename against a plain `File::create`+write:
+
+| | `-j 1` | `-j 2` | `-j 4` | `-j 8` | `-j 16` | scaling |
+|---|---|---|---|---|---|---|
+| **atomic**, one directory | 2,878/s | 2,965/s | 2,543/s | 2,427/s | 2,506/s | **0.87x** |
+| **direct**, one directory | 5,531/s | 5,104/s | 4,101/s | 4,250/s | 4,237/s | **0.77x** |
+| **atomic**, 16 directories | 2,775/s | 3,868/s | 4,680/s | 5,123/s | 5,114/s | **1.84x** |
+
+Three things fall out, and the second is the one that gets guessed wrong:
+
+1. **NTFS takes an exclusive lock on a directory's B-tree index for any entry
+   create, rename or delete.** One directory, one writer, no matter the thread count.
+2. **A one-stage write does not help.** It scales *worse* (0.77x) — creation alone is
+   what serializes, so removing the rename halves the work on a phase that stays
+   single-file-at-a-time. It is 1.92x faster single-threaded, and that is the entire
+   prize: on a real 2,394-sidecar single-folder run, ~810 ms against ~430 ms.
+   **~375 ms is the whole price of atomicity**, and it buys protection against a
+   Ctrl-C leaving a truncated sidecar that `skip existing` would then skip *forever*.
+3. **Spreading across directories recovers nearly all of it.** Atomic writes over 16
+   directories at `-j 8` hit 5,123/s — matching direct writes into one directory.
+
+**So `-j` advice depends on the shape of the run, not just the storage.** A
+single-folder import is write-serial and wants the default 2. A **recursive run over
+many date folders parallelizes its writes** — and gets it free, because
+`collect_paths` sorts, so rayon's chunked split hands each worker a different
+directory. If a big multi-folder import ever feels slow, raise `-j` before
+suspecting the atomic write.
+
+Note also that *creating* a new sidecar costs ~2.3x *overwriting* an existing one, so
+a `--force` re-run is not a valid benchmark of a fresh import; delete the `.xmp`
+files first — **on a staged copy under `N:\`, never on `Q:\` and never a Lightroom
+sidecar** (constraints 5 and 6; that is the whole reason staging exists).
+
+**What the atomic write does and does not guarantee.** `persist()` does not fsync, so
+it is complete protection against *process* death — Ctrl-C, panic, kill, where the
+file is either fully written or never linked into place — and only partial protection
+against *power loss*, since NTFS journals the metadata but not your data. Closing that
+would need an fsync per file plus a directory fsync, costing far more than the rename
+ever does. The current design is deliberately at that point: cheap cover for the
+failure that actually happens, none for the one that mostly does not.
 
 One deviation from the plan, deliberately: a file with **no EXIF at all** returns
 `nom_exif::Error::ExifNotFound`, and `raw.rs` maps that to `Capture::NoCaptureTime`

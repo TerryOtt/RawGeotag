@@ -146,9 +146,12 @@ cores, creating 2,394 sidecars from scratch:
 
 The EXIF read is nearly free locally (~0.3 s for all 3,883 files, since for CR3
 nom-exif seeks within the container rather than reading whole 30 MB files), so the
-run is dominated by *creating* sidecars. **Writing does not parallelize on NTFS**:
-the temp-file create and the rename are two directory-metadata operations each, and
-NTFS serializes those within a directory, so extra threads only add contention.
+run is dominated by *creating* sidecars. **Writing does not parallelize within a
+single directory on NTFS**, which serializes creates and renames against that
+directory's index — so for a one-folder import, extra threads only add contention.
+Measured, this is not the atomic write's fault: plain one-stage writes scale slightly
+*worse*. Spread the same work over 16 folders and it scales 1.8×, so **a recursive
+import across many date folders does benefit from a higher `-j`.**
 
 Network storage inverts this entirely. Cold reads over SMB:
 
