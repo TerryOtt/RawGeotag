@@ -77,19 +77,25 @@ reads `OffsetTimeOriginal` from the CR3 and needs `--utc-offset` only for the D3
 lacks the tag. Lightroom's tracklog matching ignores the EXIF offset and works from an
 offset you supply, so a CR3 with `OffsetTimeOriginal="+00:00"` still needs one.
 
-Measured on a machine in **US Eastern**, where both cameras' clocks were on UTC:
+**The offset is not a fixed number — it changes per photo set.** Measured on a machine
+in **US Eastern**, where both cameras' clocks were on UTC:
 
-| Set | Photo date | Offset that worked |
-|---|---|---|
-| `cr3-malta` | 2025-09-18 | **+0400** |
-| `nef-sedona` | 2019-01-19 | **+0500** |
+| Set | Photo date | Zone then | Offset that worked |
+|---|---|---|---|
+| `cr3-malta` | 2025-09-18 | EDT, `UTC-4` | **+0400** |
+| `nef-sedona` | 2019-01-19 | EST, `UTC-5` | **+0500** |
 
-**Those two numbers are not portable — derive yours.** They differ by an hour because
-the photo dates fall either side of US daylight saving (September is EDT, `UTC-4`;
-January is EST, `UTC-5`), and the offset that works is the local zone added back to
-reach UTC. On a machine in another zone, or for photos on other dates, the arithmetic
-changes. Derived from two data points, so treat it as the pattern to start from rather
-than a rule.
+**It follows daylight saving as of the photo's date, not the date you run the
+comparison.** Both sets were tagged in a single Lightroom session in August — if
+Lightroom were using the machine's current offset, both would have wanted `+0400`.
+Sedona wanted `+0500`, and January is EST. So the rule is: **add back whatever the
+machine's local zone was on the day the photo was taken.**
+
+Two consequences for a future run. **Re-tagging the same two sets in winter does not
+change these numbers** — they key off 2025-09-18 and 2019-01-19, which do not move. But
+**a different machine timezone, or a photo set from another date, changes them
+entirely**, so derive rather than copy. This is inferred from two data points; the
+positional check below is what actually confirms it.
 
 **The reliable check is positional, not arithmetic:** a photo landing outside Malta or
 Sedona means the offset is wrong. Don't save that — fix the offset and re-tag.
