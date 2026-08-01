@@ -266,12 +266,22 @@ that is ~14 GB of RAM, so **memory breaks several orders of magnitude before the
 algorithm does**.
 
 **The one genuinely superlinear thing is `ensure_no_overlap`, at `O(F²)` in the number
-of GPX *files*** — every pair compared. Seven files is 21 comparisons. Sorting by
-start time and checking adjacent pairs would make it `O(F log F)`, and that is **not
-worth doing**: `F` is bounded by what a human types on a command line, and the
-pairwise form is obviously correct where an adjacency check can botch full
-containment — which `overlap_is_checked_across_every_pair_not_just_neighbours` exists
-to catch.
+of GPX *files*** — every pair compared. Seven files is 21 comparisons.
+
+Sorting by start time and checking only adjacent pairs would make it `O(F log F)`, and
+**that alternative is correct** — if any two intervals overlap then after sorting some
+*adjacent* pair must, since `I[i+1].start <= I[j].start <= I[i].end`. Verified against
+containment, nesting and touching-by-one-second; it agrees with the pairwise form on
+all of them. It is simply **not worth doing**: `F` is bounded by what a human types on
+a command line, so 21 comparisons never becomes a cost, and the pairwise form is
+correct without needing that sortedness argument at all.
+
+*(An earlier version of this note claimed the adjacency check would miss full
+containment. That was wrong — it catches it. What it does not survive is dropping the
+sort: `overlap_is_checked_across_every_pair_not_just_neighbours` uses spans whose
+overlapping members are **not** adjacent in argument order, so a check over
+input-order neighbours alone misses them. That is the mistake the test guards, and the
+reason to leave this function alone is cost, not correctness.)*
 
 **The general test, worth applying before the next such question: who controls N?**
 Here `N_points` is bounded by how long someone logs GPS in a day and `N_files` by what
