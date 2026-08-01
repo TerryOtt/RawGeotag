@@ -393,8 +393,35 @@ Compared against real LR sidecars on `Q:\` — `2019\2019-01-19\DSC_0001.xmp`
 
 **Lightroom's GPS flavor has not moved since at least 2019.** Namespaces were added
 across those eras (`exifEX`, `crd`, `xmpDM`) and `x:xmptk` changed, but how GPS is
-expressed did not change at all. *(Pending: a 15.4.1-written sample of each format to
-confirm this still holds; everything above tops out at 13.4.)*
+expressed did not change at all.
+
+**Confirmed at Lightroom Classic 15.4.1**, which is the version Terry runs — 9 CR3 and
+5 NEF geotagged in LR from the same tracks rawgeotag used, then diffed. Every row of the
+table above still holds: coordinates are still `DDD,MM.mmmk` with a hemisphere letter
+(`exif:GPSLatitude="35,53.72480316N"`), `GPSVersionID` is still `2.2.0.0`, altitude is
+still `/10000` and **still carries no `GPSAltitudeRef`** even when positive, there is
+still no packet wrapper and no BOM, and `GPSTimeStamp` and `GPSMapDatum` are still
+absent. The `x:xmptk` string is byte-identical to 13.4's. It also writes
+`photoshop:SidecarForExtension` for **both** CR3 and NEF. **So the encoding our packet
+rests on is stable across 5.6-c140 → 7.0-c000 → 15.4.1, and nothing needs changing.**
+
+### Why Lightroom's fix differs from ours by half a metre — sub-second capture times
+
+The same-photo, same-track diff agreed to **0.02-0.12 m on CR3 and 0.33-0.53 m on NEF**,
+altitude to 0.245 m at worst and usually exactly. All of it is inside the mantra's 5 m
+by an order of magnitude, but the NEF gap is bigger than our 0.19 m encoding floor
+explains, and the cause is worth recording so nobody hunts it as a bug:
+
+**Both cameras record `SubSecTimeOriginal`, Lightroom uses it, and we truncate to whole
+seconds.** LR writes `exif:DateTimeOriginal="2025-09-18T06:52:03.43Z"`; we interpolate
+at `:03`. The hypothesis predicts the data quantitatively — Malta's CR3s are `.43` on a
+near-stationary camera and differ by ~0.02 m, while Sedona's NEFs are `.50`/`.80`/`.60`
+on a walking photographer and differ by 0.33-0.53 m, implying 0.6-0.9 m/s. That is a
+person walking slowly, which is what those frames are.
+
+**Not worth adopting.** The whole effect is sub-metre against a 5 m rule, and buying it
+would mean threading fractional seconds through capture-time extraction and lookup, and
+re-deriving all three fixture hashes. Recorded as an explanation, not a TODO.
 
 **Do not restyle the packet to match.** Every difference is additive or cosmetic and
 none is malformed: the three properties we write and LR does not are all in Adobe's own
