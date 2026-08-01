@@ -40,41 +40,48 @@ accuracy — never clamp, extrapolate, or bridge a hole to raise the tagged coun
 
 4. **Raw files are never modified.** Output is sidecars only.
 
-5. **`Q:\` permits exactly two operations: read anything, and create a new `.xmp`.**
-   **Never remove or overwrite any file on `Q:\`, for any reason, ever.** There is
-   no exception, no "just this once", and no flag that unlocks it — if a task seems
-   to require one, the task is wrong, so stop and ask. Concretely this means
-   **`--force` must never be pointed at `Q:\`**, since overwriting an existing
-   sidecar is precisely what it does, and it would silently destroy Lightroom
-   develop settings, keywords and ratings that exist nowhere else. Creating a
-   sidecar where none exists is the *only* write permitted.
+Constraints 1-4 above bind the **code**. The two below bind **you, Claude, as an
+operator of it** — they are not product requirements, and the distinction is the
+whole point of them. Terry keeps every capability the tool has, including the
+destructive ones. What is being removed is *your* ability to do irreversible harm,
+not his. If data gets destroyed, the only person who should be able to have caused
+it is him.
+
+5. **On `Q:\`, you may read anything and create a new `.xmp`. Nothing else, ever.**
+   You must never remove or overwrite a file there, for any reason — no exception,
+   no "just this once", no flag that unlocks it. If a task appears to require one,
+   the task is wrong: stop and ask. So **you never point `--force` at `Q:\`**,
+   because overwriting an existing sidecar is exactly what it does.
 
    The atomic write is unaffected and stays: `tempfile` creates a temp file it owns
    and renames it into place, and cleaning up *its own* temp on failure is not what
-   this rule prohibits. The rule is about files that were already there.
+   this prohibits. The rule is about files that were already there.
 
-   This is an operating rule for whoever is working in this repo, **not** a feature
-   of the tool — do not hardcode a drive letter into shipped code.
-
-6. **A Lightroom-created sidecar is locked. Never delete or modify one, anywhere,
-   ever.** Unlike constraint 5 this is not about a drive — it follows the *file*.
-   A copy staged on `N:\` is still a Lightroom sidecar and is still untouchable,
-   because a "fixed" copy invites being copied back over the original.
+6. **You never delete or modify a Lightroom-created sidecar, anywhere, ever.**
+   Unlike constraint 5 this follows the *file*, not the drive — a copy staged on
+   `N:\` is still a Lightroom sidecar, because a "fixed" copy invites being copied
+   back over the original.
 
    **How to tell whose it is:** `exiftool -XMPToolkit <file>.xmp`. Lightroom's say
    `Adobe XMP Core ...`; ours say `rawgeotag <version>`, written as `x:xmptk` by
-   `xmp::render`. That one field is the whole test, and it is worth running before
-   any operation that could write.
+   `xmp::render`. That one field is the whole test; run it before anything that
+   could write.
 
    Why it is absolute: those files carry develop settings, keywords, ratings and
-   crop data that **exist nowhere else** — they are not derived from the raw and
-   cannot be regenerated. A geotag is recoverable; twelve years of edits are not.
+   crop data that **exist nowhere else** — not derived from the raw, not
+   regenerable. A missing geotag is recoverable; years of edits are not.
 
-   **The tool's default behavior is already correct and is load-bearing**: existing
-   sidecars are skipped with a warning, and only `--force` overwrites. Do not
-   change that default, and do not reach for `--force` on any tree that contains
-   Lightroom sidecars. If a photo already has one, it does not get geotagged by
-   this tool — that is the accepted outcome, not a problem to engineer around.
+   Consequence to accept rather than engineer around: **a photo that already has a
+   Lightroom sidecar does not get geotagged by you.** Say so and move on.
+
+**Do not build these rules into the tool.** No drive-letter check, no `x:xmptk`
+guard on `--force`, no confirmation prompt — `--force` stays exactly as destructive
+as it is today. Terry runs it deliberately to do things you are not permitted to do,
+and a safety rail added for your benefit would take that from him. The default
+(skip existing with a warning) is load-bearing and should not change; that is a
+different thing from adding a rail on top of it. If you find yourself proposing a
+guard so you can be trusted with `--force`, the answer is that you are not supposed
+to be trusted with it.
 
 ## Execution shape: two phases with a gate between them
 
