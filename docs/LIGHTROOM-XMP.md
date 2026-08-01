@@ -69,11 +69,30 @@ forbids trial runs against `Q:\`.
 4. **Metadata ▸ Save Metadata to File** (Ctrl+S). Without this Lightroom keeps the GPS
    in the catalog and never writes a sidecar.
 
-**Time zone.** Both cameras' clocks were on UTC. CR3 carries
-`OffsetTimeOriginal="+00:00"` so Lightroom needs no help; **NEF carries no offset tag at
-all**, which is why rawgeotag requires `--utc-offset` for a D3300 — if auto-tag tags
-nothing, use *Set Time Zone Offset…* until capture times land inside the track span.
-Sanity check: a photo landing outside Malta or Sedona means the offset is wrong.
+### Time zone — Lightroom needs an offset for *every* photo, including CR3
+
+**This is the step that wastes an afternoon if you assume otherwise.** Lightroom's
+*Set Time Zone Offset…* has to be set for both sets. It is **not** like rawgeotag, which
+reads `OffsetTimeOriginal` from the CR3 and needs `--utc-offset` only for the D3300 that
+lacks the tag. Lightroom's tracklog matching ignores the EXIF offset and works from an
+offset you supply, so a CR3 with `OffsetTimeOriginal="+00:00"` still needs one.
+
+Measured on a machine in **US Eastern**, where both cameras' clocks were on UTC:
+
+| Set | Photo date | Offset that worked |
+|---|---|---|
+| `cr3-malta` | 2025-09-18 | **+0400** |
+| `nef-sedona` | 2019-01-19 | **+0500** |
+
+**Those two numbers are not portable — derive yours.** They differ by an hour because
+the photo dates fall either side of US daylight saving (September is EDT, `UTC-4`;
+January is EST, `UTC-5`), and the offset that works is the local zone added back to
+reach UTC. On a machine in another zone, or for photos on other dates, the arithmetic
+changes. Derived from two data points, so treat it as the pattern to start from rather
+than a rule.
+
+**The reliable check is positional, not arithmetic:** a photo landing outside Malta or
+Sedona means the offset is wrong. Don't save that — fix the offset and re-tag.
 
 Track spans, both UTC:
 
