@@ -246,6 +246,13 @@ is clean. (No count here on purpose — it went stale three times; `cargo test` 
 authoritative answer.) Toolchain on this machine: Rust 1.97.1 MSVC, with the VS Build Tools C++
 workload installed.
 
+**When you add a test for an invariant the compiler cannot see, mutation-check it**:
+break the thing it guards, confirm that test fails, revert. Green proves the code is
+right today; it does not prove the test would notice if the code stopped being right.
+Verification item 10 in the plan has the three worked examples and the failure shape
+to watch for — a change that compiles, passes everything else, and silently alters
+which photos get tagged.
+
 **Verified against five real shoots on two bodies** — four Canon EOS R5 (CR3) and
 one Nikon D3300 (NEF). The NEF run is written up under *NEF, and why
 `read_strategy` exists*; the four CR3 shoots follow.
