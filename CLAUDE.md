@@ -475,11 +475,11 @@ performance benefit that does not exist.
 
 ### Verifying against real files — run every format, every time
 
-**`C:\Users\TDO-XPS15-2024\Claude\RawGeotag-fixtures\verify.ps1`.** One command,
-all three fixtures, non-zero exit on any failure. **Never verify just the format
-you happen to be working on** — `RawFormat::read_strategy` returns `Streaming` for
-CR3 and `WholeFile` for NEF, so they run through different code in `raw.rs` and
-passing on one says nothing about the other.
+**`scripts\verify-fixtures.ps1`.** One command, all three fixtures, non-zero exit
+on any failure. **Never verify just the format you happen to be working on** —
+`RawFormat::read_strategy` returns `Streaming` for CR3 and `WholeFile` for NEF, so
+they run through different code in `raw.rs` and passing on one says nothing about
+the other.
 
 | Fixture | Files | Exercises | Aggregate |
 |---|---|---|---|
@@ -487,9 +487,13 @@ passing on one says nothing about the other.
 | `cr3-rockies` | 30 CR3 | `Streaming`; offset **`+01:00`, real conversion** | `0D969878B1B7081C` |
 | `nef-sedona` | 30 NEF | `WholeFile`; **no** offset, so the gate must fire | `E7E243F581F1CA93` |
 
-2.37 GB total on local NVMe, beside the repo and never inside it, since raws must
-not reach git. `README.md` there has the layout and the hash recipe; per-file
-SHA-256 is in each `SHA256SUMS.txt`.
+**The harness is versioned; only the photographs are not.** `scripts/` holds the
+script and the per-file source manifests, [`docs/FIXTURES.md`](docs/FIXTURES.md) the
+rationale and rebuild recipe; the 3.7 GB of raws sit in `..\RawGeotag-fixtures\`
+beside the repo. Losing an expected hash would mean re-deriving it from whatever the
+code does at the time, which is worth nothing as a regression check — so those live
+in git. `-CheckSources` re-hashes every raw against its manifest, which answers the
+one question a bare aggregate comparison cannot: did the *fixture* drift, or the code?
 
 **Why three and not two.** The timezone cases differ, and that matters more than
 the file count: **a bug that dropped the EXIF offset would pass Malta and Sedona

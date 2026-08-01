@@ -1,0 +1,154 @@
+<#
+.SYNOPSIS
+    Verify rawgeotag against every supported format in one pass.
+
+.DESCRIPTION
+    Verification means ALL formats, not whichever one is on your mind. CR3 and NEF
+    take different code paths -- RawFormat::read_strategy returns Streaming for one
+    and WholeFile for the other -- so passing on one says nothing about the other.
+
+    Three fixtures, chosen so their timezone cases differ. That matters more than
+    the file count: a bug that dropped the EXIF offset entirely would pass Malta
+    (+00:00 is a no-op) and Sedona (no offset at all) while silently misplacing
+    every Rockies photo by ~50 km, which would still tag and never warn.
+
+    This script and the manifests live in the repo; the raws do not, since they are
+    3.7 GB. See docs/FIXTURES.md for what the fixture holds and how to rebuild it.
+
+.PARAMETER FixtureRoot
+    Directory holding cr3-malta/, cr3-rockies/, nef-sedona/ and gpx/.
+
+.PARAMETER Binary
+    Path to rawgeotag.exe. Defaults to this repo's release build.
+
+.PARAMETER CheckSources
+    Also verify every source raw against its recorded SHA-256. Slow (reads 3.7 GB)
+    and rarely needed -- use it when a hash mismatch might mean the fixture drifted
+    rather than the code changing.
+
+.EXAMPLE
+    .\scripts\verify-fixtures.ps1
+
+.EXAMPLE
+    .\scripts\verify-fixtures.ps1 -CheckSources
+#>
+[CmdletBinding()]
+param(
+    [string]$FixtureRoot = "$PSScriptRoot\..\..\RawGeotag-fixtures",
+    [string]$Binary = "$PSScriptRoot\..\target\release\rawgeotag.exe",
+    [switch]$CheckSources
+)
+
+$ErrorActionPreference = 'Stop'
+
+# Expected aggregates. A deliberate change to the XMP packet or to the crate
+# version in x:xmptk moves these legitimately -- re-derive, do not hunt a bug.
+$Fixtures = @(
+    @{ Name = 'cr3-malta';   Ext = 'cr3'; Gpx = 'malta-2025-09-18.gpx';   Args = @();
+       Count = 40; Hash = 'C2277B569D9058B6'
+       Exercises = 'Streaming read path; EXIF offset +00:00 (present, no-op)' }
+    @{ Name = 'cr3-rockies'; Ext = 'cr3'; Gpx = 'rockies-2022-09-27.gpx'; Args = @();
+       Count = 30; Hash = '0D969878B1B7081C'
+       Exercises = 'Streaming read path; EXIF offset +01:00 (real conversion)' }
+    @{ Name = 'nef-sedona';  Ext = 'nef'; Gpx = 'sedona-2019-01-19.gpx';  Args = @('--utc-offset', '+0000');
+       Count = 30; Hash = 'E7E243F581F1CA93'
+       Exercises = 'WholeFile read path; no EXIF offset, so --utc-offset is required' }
+)
+
+function Get-AggregateHash([string]$Dir) {
+    # -LiteralPath -Force, never a wildcard path: the wildcard form has served a
+    # stale directory listing over SMB and reported 3 files where 30 existed.
+    $xmp = Get-ChildItem -LiteralPath $Dir -Filter *.xmp -Force | Sort-Object Name
+    if (-not $xmp) { return @{ Count = 0; Hash = '(none)' } }
+    $joined = ($xmp | ForEach-Object { (Get-FileHash $_.FullName -Algorithm SHA256).Hash }) -join ''
+    $bytes = [Text.Encoding]::UTF8.GetBytes($joined)
+    $agg = (Get-FileHash -InputStream ([IO.MemoryStream]::new($bytes)) -Algorithm SHA256).Hash
+    @{ Count = $xmp.Count; Hash = $agg.Substring(0, 16) }
+}
+
+if (-not (Test-Path $Binary)) {
+    throw "rawgeotag not found at $Binary -- run cargo build --release first"
+}
+if (-not (Test-Path $FixtureRoot)) {
+    throw "fixture root not found at $FixtureRoot -- see docs/FIXTURES.md to rebuild it"
+}
+
+$FixtureRoot = (Resolve-Path $FixtureRoot).Path
+Write-Host "binary : $((Resolve-Path $Binary).Path)"
+Write-Host "fixture: $FixtureRoot`n"
+
+$failed = @()
+
+foreach ($f in $Fixtures) {
+    $dir = Join-Path $FixtureRoot $f.Name
+    $gpx = Join-Path $FixtureRoot "gpx\$($f.Gpx)"
+    Write-Host "=== $($f.Name) ===" -ForegroundColor Cyan
+    Write-Host "    exercises: $($f.Exercises)"
+
+    if (-not (Test-Path $dir)) {
+        Write-Host "    MISSING  : $dir" -ForegroundColor Red
+        $failed += "$($f.Name): fixture directory missing"
+        continue
+    }
+
+    if ($CheckSources) {
+        $manifest = Join-Path $PSScriptRoot "fixture-manifests\$($f.Name).sha256"
+        $bad = 0
+        foreach ($line in Get-Content $manifest) {
+            $want, $name = $line -split '\s+', 2
+            $path = Join-Path $dir $name.Trim()
+            if (-not (Test-Path $path)) { $bad++; continue }
+            if ((Get-FileHash $path -Algorithm SHA256).Hash -ne $want) { $bad++ }
+        }
+        if ($bad) {
+            Write-Host "    sources  : FAIL -- $bad file(s) differ from the manifest" -ForegroundColor Red
+            $failed += "$($f.Name): $bad source file(s) do not match the recorded SHA-256"
+        } else {
+            Write-Host "    sources  : match the recorded SHA-256  OK" -ForegroundColor Green
+        }
+    }
+
+    # A leftover sidecar is SKIPPED rather than rewritten, which silently changes
+    # the aggregate. Clearing first is not optional.
+    Get-ChildItem -LiteralPath $dir -Filter *.xmp -Force | Remove-Item -Force
+
+    # The gate: a format with no EXIF offset must refuse the whole run when
+    # --utc-offset is absent. Only meaningful where the body records no offset.
+    if ($f.Args -contains '--utc-offset') {
+        & $Binary $dir $f.Ext $gpx 2>&1 | Out-Null
+        $leaked = (Get-ChildItem -LiteralPath $dir -Filter *.xmp -Force).Count
+        if ($leaked -eq 0) {
+            Write-Host "    gate     : refused without --utc-offset, wrote nothing  OK" -ForegroundColor Green
+        } else {
+            Write-Host "    gate     : FAIL -- wrote $leaked sidecars without --utc-offset" -ForegroundColor Red
+            $failed += "$($f.Name): gate leaked $leaked sidecars"
+        }
+    }
+
+    & $Binary @($f.Args) $dir $f.Ext $gpx 2>$null | Out-Null
+    $got = Get-AggregateHash $dir
+
+    if ($got.Count -ne $f.Count) {
+        Write-Host "    count    : FAIL -- $($got.Count), expected $($f.Count)" -ForegroundColor Red
+        $failed += "$($f.Name): wrote $($got.Count) sidecars, expected $($f.Count)"
+    } else {
+        Write-Host "    count    : $($got.Count) sidecars  OK" -ForegroundColor Green
+    }
+
+    if ($got.Hash -eq $f.Hash) {
+        Write-Host "    aggregate: $($got.Hash)  OK" -ForegroundColor Green
+    } else {
+        Write-Host "    aggregate: FAIL -- $($got.Hash), expected $($f.Hash)" -ForegroundColor Red
+        $failed += "$($f.Name): aggregate $($got.Hash), expected $($f.Hash)"
+    }
+
+    Get-ChildItem -LiteralPath $dir -Filter *.xmp -Force | Remove-Item -Force
+    Write-Host ""
+}
+
+if ($failed) {
+    Write-Host "FAILED:" -ForegroundColor Red
+    $failed | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
+    exit 1
+}
+Write-Host "all fixtures pass" -ForegroundColor Green
