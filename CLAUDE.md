@@ -239,6 +239,45 @@ risk concentrates in the `0.x` crates: `gpx`, `chrono`, `time`, `indicatif`.
     exact failure mode. Inclusive bound: sharing one second is an overlap. The remedy
     is separate passes, which work because photos outside a track are skipped.
 
+### Track lookup complexity — asked and answered, do not re-litigate
+
+**The index is one flat `Vec<TrackPoint>`, sorted and deduplicated at load, searched
+with `binary_search_by_key`. There is no list-of-lists and nothing linear on the hot
+path.** Every GPX file is flattened into that single array — which is exactly what
+the segment renumbering above exists to make safe.
+
+The recurring idea is to record each track's min/max time so photos can be dismissed
+without searching. **It is already implicit**: the array is sorted, so a photo outside
+every track lands at `Err(i) if i == 0 || i == len`, and the binary search *is* the
+bounds check. The proposal would turn `O(log N)` into `O(1)`. The prize:
+
+| | |
+|---|---|
+| binary search over 76k points | ~17 comparisons, ~100-200 ns |
+| all 3,883 lookups in a full run | **under 1 ms** |
+| that run's wall clock | ~1,500 ms, dominated by file I/O |
+
+**Lookup is ~0.05% of runtime.** Making it free saves under a millisecond.
+
+The headroom is not close either, because `log2` growth means doubling the cost
+requires *squaring* N. 76k points to 5.8 **billion** doubles the comparisons. A decade
+of continuous 1 Hz logging is ~300M points — 28 steps — and at ~48 bytes per point
+that is ~14 GB of RAM, so **memory breaks several orders of magnitude before the
+algorithm does**.
+
+**The one genuinely superlinear thing is `ensure_no_overlap`, at `O(F²)` in the number
+of GPX *files*** — every pair compared. Seven files is 21 comparisons. Sorting by
+start time and checking adjacent pairs would make it `O(F log F)`, and that is **not
+worth doing**: `F` is bounded by what a human types on a command line, and the
+pairwise form is obviously correct where an adjacency check can botch full
+containment — which `overlap_is_checked_across_every_pair_not_just_neighbours` exists
+to catch.
+
+**The general test, worth applying before the next such question: who controls N?**
+Here `N_points` is bounded by how long someone logs GPS in a day and `N_files` by what
+fits in a shell command. Neither can grow without the user deciding to make it grow,
+which is what separates this from the hyperscale case where the instinct is right.
+
 ## Status
 
 Implemented. Builds clean, the unit test suite passes, `cargo clippy -- -D warnings`
