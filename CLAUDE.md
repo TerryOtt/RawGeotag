@@ -40,6 +40,22 @@ accuracy — never clamp, extrapolate, or bridge a hole to raise the tagged coun
 
 4. **Raw files are never modified.** Output is sidecars only.
 
+5. **`Q:\` permits exactly two operations: read anything, and create a new `.xmp`.**
+   **Never remove or overwrite any file on `Q:\`, for any reason, ever.** There is
+   no exception, no "just this once", and no flag that unlocks it — if a task seems
+   to require one, the task is wrong, so stop and ask. Concretely this means
+   **`--force` must never be pointed at `Q:\`**, since overwriting an existing
+   sidecar is precisely what it does, and it would silently destroy Lightroom
+   develop settings, keywords and ratings that exist nowhere else. Creating a
+   sidecar where none exists is the *only* write permitted.
+
+   The atomic write is unaffected and stays: `tempfile` creates a temp file it owns
+   and renames it into place, and cleaning up *its own* temp on failure is not what
+   this rule prohibits. The rule is about files that were already there.
+
+   This is an operating rule for whoever is working in this repo, **not** a feature
+   of the tool — do not hardcode a drive letter into shipped code.
+
 ## Execution shape: two phases with a gate between them
 
 **The phase boundary is not where the progress bars suggest.** They read `reading
@@ -281,17 +297,19 @@ Two NAS shares with opposite roles. Getting this wrong is either slow or damagin
 |---|---|---|
 | Array | **HDD RAID6** — seek-bound, slow | **NVMe RAID10** — fast |
 | Holds | `Q:\Lightroom\Images\<year>\<date>` and `Q:\Photo GPX Tracks\<year>` | nothing that matters |
-| Rule | **treat as the archive: do not write to it while developing** | disposable, clobber freely — *except* `rawgeotag-bench`, see below |
+| Rule | **read anything; create new `.xmp` only. Never delete, never overwrite** — binding constraint 5 | disposable, clobber freely — *except* `rawgeotag-bench`, see below |
 | Size | 11 TB, 3.8 TB free | 3.0 TB, 2.3 TB free (2026-08-01) |
 
 **Stage a working set on `N:\` and iterate there.** One copy off `Q:\` buys every
-subsequent run. Never point a test, a benchmark, or a `--force` experiment at a
-folder under `Q:\Lightroom` — copy first.
+subsequent run, and it is the only way to run anything that writes. Never point a
+test, a benchmark, or any `--force` invocation at a folder under `Q:\Lightroom` —
+copy to `N:\` first.
 
-The distinction to keep straight: *the tool's whole purpose* is writing sidecars
-next to raws, so a **real geotagging pass the user asks for does write into
-`Q:\`**. What does not belong there is development output — trial runs, benchmark
-sweeps, anything re-runnable. Those go to `N:\` or a temp directory.
+The line to hold: a **real geotagging pass may create new sidecars on `Q:\`**, which
+is the tool's whole purpose and the one write constraint 5 allows. Everything else —
+trial runs, benchmark sweeps, `--force`, anything re-runnable — happens on `N:\` or
+in a temp directory. If a photo on `Q:\` already has a sidecar, it stays as it is;
+the answer is never to overwrite it.
 
 This matters most for **NEF**, a `WholeFile` format: every photo costs a full
 ~22 MB read rather than a header seek, which is precisely what HDD RAID6 is worst
