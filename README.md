@@ -1,7 +1,8 @@
 # RawGeotag
 
-A Rust CLI that geotags camera raw files from one or more GPX tracks, **so that Adobe
-Lightroom Classic picks the coordinates up when the images are imported.**
+A Rust CLI that geotags camera raw files from one or more [GPS Exchange Format][gpx]
+(GPX) tracks, **so that Adobe Lightroom Classic picks the coordinates up when the
+images are imported.**
 
 That is the goal, stated narrowly on purpose. Raw files carry a capture timestamp but
 no location; a GPS logger records a track over the same period. RawGeotag correlates
@@ -259,5 +260,6 @@ writes, that set the wall clock.
   conforming to it proves little, so what current Lightroom Classic emits is the
   standard the sidecars are held to — see XMP sidecars above.
 
+[gpx]: https://www.topografix.com/gpx.asp
 [xmp]: https://developer.adobe.com/xmp/docs/xmp-specifications/
 [iso]: https://www.iso.org/standard/75163.html
