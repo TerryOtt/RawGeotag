@@ -86,10 +86,18 @@ in **US Eastern**, where both cameras' clocks were on UTC:
 | `nef-sedona` | 2019-01-19 | EST, `UTC-5` | **+0500** |
 
 **It follows daylight saving as of the photo's date, not the date you run the
-comparison.** Both sets were tagged in a single Lightroom session in August — if
-Lightroom were using the machine's current offset, both would have wanted `+0400`.
-Sedona wanted `+0500`, and January is EST. So the rule is: **add back whatever the
-machine's local zone was on the day the photo was taken.**
+comparison.** Both sets were tagged in a single Lightroom session in August, seconds
+apart — so the PC's own offset was identical for both. If that were the varying term,
+both would have wanted `+0400`. Sedona wanted `+0500`, and January is EST. One session,
+one PC offset, two answers: the term that moved is the photo's date. So the rule is
+**add back whatever the machine's local zone was on the day the photo was taken.**
+
+*What appears to be happening, which explains the otherwise baffling part —* why a
+camera already set to UTC needs any offset at all. Lightroom seems to convert the
+**track's** UTC timestamps into machine-local time using the DST rules in effect on the
+track's date, then match that against the camera's naive capture time. The slider exists
+to cancel that conversion. Under that model both measured values fall out exactly, and
+`0` would only be right on a machine whose local zone is UTC.
 
 Two consequences for a future run. **Re-tagging the same two sets in winter does not
 change these numbers** — they key off 2025-09-18 and 2019-01-19, which do not move. But
