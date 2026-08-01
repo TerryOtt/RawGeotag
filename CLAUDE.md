@@ -368,7 +368,14 @@ Note ExifTool calls the XMP `exif:GPSTimeStamp` property **`GPSDateTime`**; aski
 for `GPSTimeStamp` on a sidecar returns nothing, which is a naming difference, not a
 bug.
 
-## The XMP we emit, measured against Lightroom's own
+## The XMP we emit — measured against Lightroom's own, and settled
+
+**Closed on 2026-08-01 against Lightroom Classic 15.4.1. The packet is not changing.
+Do not re-open it.** The evidence is a same-photo, same-track diff, not an argument
+about the spec, so there is no better test available to a future session — repeating it
+would produce these numbers again. If you find yourself drafting a proposal to restyle
+the packet to look more like Lightroom's, that is the shape of the mistake; the answer
+is below and it is no.
 
 **The workflow this tool serves is: geotag first, import into Lightroom second.** That
 ordering is not just convenience — it is the only window in which no Lightroom sidecar
@@ -440,12 +447,23 @@ import, and each one is a new chance to be wrong.
 field's job is naming the writer. It is also the whole of constraint 6's test, so
 forging it would disarm the one check that protects Lightroom sidecars.
 
-Two optional changes exist, neither yet justified. **Coordinate precision:** 4 decimal
-minutes quantizes to ~0.19 m — inside the mantra, but the floor on what any field
-spot-check can demonstrate; going to 7 would sharpen that and would legitimately move
-all three fixture hashes. **`photoshop:SidecarForExtension`:** only earns its place if
-`IMG_1234.CR3` and `IMG_1234.JPG` ever share a folder, which makes `IMG_1234.xmp`
-ambiguous.
+**Two changes were floated before the 15.4.1 diff and both are now closed by it** —
+recorded because they are the two a future session is most likely to re-invent:
+
+- **More coordinate precision.** 4 decimal minutes quantizes to ~0.19 m, and going to 7
+  looked like it would sharpen field spot-checks. The diff killed it: the sub-second
+  truncation above moves the fix **2-3x further** than the encoding does, so spending
+  three fixture hashes to refine the *smaller* of two errors buys a sharper number that
+  is still dominated by the one left in place.
+- **`photoshop:SidecarForExtension`.** Its only real use is disambiguating
+  `IMG_1234.xmp` when `IMG_1234.CR3` and `IMG_1234.JPG` share a folder. 15.4.1 writes it
+  itself, for both CR3 and NEF, on the first save — so we would be adding a field to be
+  overwritten by an identical one minutes later.
+
+**The `N:\lr-xmp-compare\` tree is the evidence for all of this**, and the sidecars in
+it are **Lightroom-created**, so constraint 6 binds there — it follows the file, not the
+drive, and `N:\` being disposable does not exempt them. Do not tidy that directory away;
+only Terry removes it.
 
 ## The CR3 timezone trap — do not regress this
 
