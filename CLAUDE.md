@@ -489,10 +489,13 @@ recorded because they are the two a future session is most likely to re-invent:
   itself, for both CR3 and NEF, on the first save — so we would be adding a field to be
   overwritten by an identical one minutes later.
 
-**The `N:\lr-xmp-compare\` tree is the evidence for all of this**, and the sidecars in
-it are **Lightroom-created**, so constraint 6 binds there — it follows the file, not the
-drive, and `N:\` being disposable does not exempt them. Do not tidy that directory away;
-only Terry removes it.
+**The staging tree that produced this is gone** — Terry removed `N:\lr-xmp-compare\` on
+2026-08-01, which is why the recipe is versioned. Nothing is missing; rebuild it from
+[`docs/LIGHTROOM-XMP.md`](docs/LIGHTROOM-XMP.md) when there is a new Lightroom to test.
+
+**When you do rebuild it, note that Lightroom's sidecars in it are Lightroom-created**,
+so constraint 6 binds on them — it follows the file, not the drive, and `N:\` being
+disposable does not exempt them. Claude does not clear that tree; Terry does.
 
 ## The CR3 timezone trap — do not regress this
 
