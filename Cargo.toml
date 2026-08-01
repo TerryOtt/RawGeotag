@@ -7,13 +7,25 @@ license = "MIT"
 
 [dependencies]
 anyhow = "1"
+# `chrono` and `time` are both here because neither is our choice: `nom-exif`
+# returns chrono types and `gpx` returns time types, so both arrive at the API
+# boundary. `track.rs` normalizes each to Unix seconds there rather than
+# converting between the two time crates.
 chrono = "0.4"
 clap = { version = "4", features = ["derive"] }
 gpx = "0.10"
 indicatif = "0.18"
+# The only pure-Rust crate that reads Canon CR3. The far more widely used
+# `kamadak-exif` covers JPEG/TIFF/PNG/HEIF only — CR3 is a CRX-in-BMFF container,
+# not TIFF-based — so it cannot do this job at any version. What nom-exif does
+# and does not merge is the CR3 timezone trap; see CLAUDE.md before touching it.
 nom-exif = "3.6"
 rayon = "1"
-time = "0.3"
+# Atomic sidecar writes. Hand-rolling the temp-then-rename is a few lines, but
+# this gets unique names (so concurrent runs over one directory cannot collide)
+# and deletion on drop (so a failed write leaves nothing behind) for free.
+tempfile = "3"
+time = "0.3" # see the note on chrono
 walkdir = "2"
 
 [profile.release]

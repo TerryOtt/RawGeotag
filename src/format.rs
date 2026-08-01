@@ -13,6 +13,16 @@
 //! When two formats end up with identical arms that is not duplication to factor
 //! away; it is the code stating plainly that the formats do not differ. Collapse
 //! them with `Self::Cr3 | Self::Nef => ...` and split the arm when one diverges.
+//!
+//! **What limits this table is `nom-exif`, not the table.** It reads CR3, RAF,
+//! IIQ and TIFF — so a TIFF-based raw may well need nothing but a row here, and
+//! is worth simply trying against a real file. But NEF, ARW, DNG, ORF, PEF and
+//! RW2 are not on its list, and adding a row does not conjure a parser. The pure-
+//! Rust crate that does cover them is `rawler` (`Decoder::raw_metadata()` reads
+//! metadata without decoding the image); it costs ~106 transitive crates,
+//! including a complete JPEG-XL decoder, which is why it is not here for a
+//! Canon-only tool. Reach for it when a second camera system actually arrives —
+//! not before, and not as a second parser alongside nom-exif.
 
 use nom_exif::ExifTag;
 

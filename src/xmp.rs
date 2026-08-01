@@ -5,12 +5,19 @@
 //! XML library to protect. A format template is the simpler correct choice here,
 //! and it allocates less in a hot parallel loop. (If sidecar *merging* is ever
 //! added this changes: read-modify-write of third-party XMP needs a real parser.)
+//!
+//! Nor `xmp-writer`, the obvious dedicated crate. Its typed API covers the `dc:`,
+//! `xmp:` and `pdf:` namespaces for PDF metadata, so every exif GPS property here
+//! would go through `CustomNamespace` one at a time, and it emits element-form
+//! RDF where this writes attribute-form. That is the same amount of code plus a
+//! dependency.
 
-use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use chrono::DateTime;
+use tempfile::NamedTempFile;
 
 use crate::track::Fix;
 
@@ -62,24 +69,29 @@ pub fn render(fix: &Fix, captured: i64) -> Result<String> {
 /// Write the packet so an interrupted run cannot leave a half-written sidecar.
 ///
 /// The temp file sits in the destination directory, so the rename stays on one
-/// filesystem. Its name is derived from the target, and sidecar paths are unique
-/// per input, so parallel writers never collide on it.
+/// filesystem. `tempfile` gives it a random name — two `rawgeotag` processes over
+/// the same directory therefore cannot collide on it — and deletes it on drop, so
+/// a failure anywhere below leaves nothing behind for a later run to trip over.
 pub fn write_atomic(target: &Path, packet: &str) -> Result<()> {
-    let file_name = target
-        .file_name()
-        .context("sidecar path has no file name")?;
+    // `parent()` is the empty path for a bare file name like `IMG_1234.xmp`, which
+    // is not somewhere a temp file can be created.
+    let directory = match target.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    };
 
-    let mut temp_name = file_name.to_os_string();
-    temp_name.push(".tmp");
-    let temp = target.with_file_name(temp_name);
+    let mut temp = NamedTempFile::new_in(directory)
+        .with_context(|| format!("creating a temporary file for {}", target.display()))?;
 
-    fs::write(&temp, packet).with_context(|| format!("writing {}", temp.display()))?;
+    temp.write_all(packet.as_bytes())
+        .with_context(|| format!("writing {}", target.display()))?;
 
-    if let Err(error) = fs::rename(&temp, target) {
-        let _ = fs::remove_file(&temp);
-        return Err(error)
-            .with_context(|| format!("renaming sidecar into place: {}", target.display()));
-    }
+    // Atomically replaces an existing sidecar, which is what `--force` wants.
+    temp.persist(target)
+        // The error carries the temp file back so it can be retried; nothing here
+        // retries, and dropping it is what removes the file.
+        .map_err(|error| error.error)
+        .with_context(|| format!("renaming sidecar into place: {}", target.display()))?;
 
     Ok(())
 }
@@ -122,6 +134,8 @@ fn altitude_ref(ele: f64) -> u8 {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
 
     #[test]

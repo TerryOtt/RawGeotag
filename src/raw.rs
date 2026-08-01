@@ -101,6 +101,11 @@ pub fn capture_time(
 
 /// Parse an EXIF/CLI UTC offset: `±HH:MM` as EXIF writes it, or `±HHMM` as the
 /// command line takes it.
+///
+/// Hand-rolled because neither time crate already in the tree does this one job:
+/// chrono has no `FromStr` for `FixedOffset`, and `time::UtcOffset::parse` wants
+/// a format description per shape, so accepting both forms would mean two parse
+/// attempts and two descriptions to hold correct.
 pub fn parse_offset(text: &str) -> Option<FixedOffset> {
     let (sign, rest) = match text.trim().strip_prefix('+') {
         Some(rest) => (1, rest),

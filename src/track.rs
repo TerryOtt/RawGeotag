@@ -293,6 +293,13 @@ fn ensure_no_overlap(spans: &[(&Path, i64, i64)]) -> Result<()> {
 /// Haversine is accurate to well under a meter at the scales this is tested
 /// against, which is far more than a 100 m threshold needs. It is naturally
 /// periodic in longitude, so an antimeridian-crossing pair needs no special case.
+///
+/// Deliberately not `geo::Haversine`, despite `geo-types` already arriving with
+/// `gpx`: that crate brings a whole computational-geometry stack — spade, rstar,
+/// i_overlay, earcut — for this one function. The result is only ever compared
+/// against a threshold and is never written to a sidecar, so the exactness a
+/// geodesic solver would add has nothing to buy here. If that ever changes,
+/// `geographiclib-rs` is exact and costs far less than `geo`.
 fn distance_meters(a: TrackPoint, b: TrackPoint) -> f64 {
     const EARTH_RADIUS_M: f64 = 6_371_008.8;
 
