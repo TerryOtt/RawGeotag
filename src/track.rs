@@ -21,6 +21,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, ensure, Context, Result};
 use gpx::Waypoint;
+use rayon::prelude::*;
 use time::OffsetDateTime;
 
 /// One timestamped position from the track.
@@ -109,17 +110,42 @@ impl Track {
     /// path between them. Restarting the counter per file would silently make
     /// the last point of one file and the first of the next look contiguous.
     pub fn load(paths: &[PathBuf]) -> Result<Self> {
+        // Parsing runs in parallel because the files are wholly independent and
+        // the XML is slow: seven tracks of a real trip (15 MB, 76k points) cost
+        // ~700 ms here, all of it before a single photo is touched.
+        //
+        // Everything after the parse runs in argument order, so nothing a user
+        // sees depends on which worker finished first — not the segment ids, not
+        // which of several bad files gets reported, not the overlap message.
+        let parsed: Vec<Result<ParsedFile>> =
+            paths.par_iter().map(|path| read_file(path)).collect();
+
         let mut points = Vec::new();
         let mut spans: Vec<(&Path, i64, i64)> = Vec::new();
-        let mut segment = 0u32;
+        let mut next_segment = 0u32;
 
-        for path in paths {
-            let before = points.len();
-            segment = read_into(path, &mut points, segment)?;
+        for (path, parsed) in paths.iter().zip(parsed) {
+            // `?` here rather than on the collect above: when several files are
+            // unreadable, the one reported is the first on the command line
+            // instead of whichever worker failed first.
+            let ParsedFile {
+                mut points_in_file,
+                segment_count,
+            } = parsed?;
 
-            if let Some(span) = span_of(&points[before..]) {
-                spans.push((path.as_path(), span.0, span.1));
+            // Segment ids arrive numbered from zero within each file; sliding them
+            // onto a running total is what makes a seam between two files a
+            // segment break rather than a contiguous pair.
+            for point in &mut points_in_file {
+                point.segment += next_segment;
             }
+            next_segment += segment_count;
+
+            if let Some((first, last)) = span_of(&points_in_file) {
+                spans.push((path.as_path(), first, last));
+            }
+
+            points.append(&mut points_in_file);
         }
 
         ensure_no_overlap(&spans)?;
@@ -209,18 +235,32 @@ fn fix(point: TrackPoint) -> Fix {
     }
 }
 
-/// Append every timestamped point from one GPX file, returning the next free
-/// segment id so the caller can keep numbering unique across files.
-fn read_into(path: &Path, points: &mut Vec<TrackPoint>, first_segment: u32) -> Result<u32> {
+/// One GPX file's points, numbered as if it were the only file given.
+struct ParsedFile {
+    points_in_file: Vec<TrackPoint>,
+    /// How far `load` must advance the running segment id before the next file.
+    ///
+    /// Not the same as the highest id actually used: a file whose standalone-
+    /// waypoint run is empty still consumes an id for it. Keeping it that way is
+    /// what stops two files from ever sharing a segment id.
+    segment_count: u32,
+}
+
+/// Read every timestamped point from one GPX file.
+///
+/// Segments are numbered from zero, local to this file, so that files can be
+/// parsed in any order; `load` rebases them onto a running total afterwards.
+fn read_file(path: &Path) -> Result<ParsedFile> {
     let file = File::open(path).with_context(|| format!("opening GPX file {}", path.display()))?;
     let gpx = gpx::read(BufReader::new(file))
         .with_context(|| format!("parsing GPX file {}", path.display()))?;
 
-    let mut segment = first_segment;
+    let mut points_in_file = Vec::new();
+    let mut segment = 0u32;
 
     for track in gpx.tracks {
         for track_segment in track.segments {
-            points.extend(
+            points_in_file.extend(
                 track_segment
                     .points
                     .into_iter()
@@ -232,13 +272,16 @@ fn read_into(path: &Path, points: &mut Vec<TrackPoint>, first_segment: u32) -> R
 
     // Standalone waypoints count as track points too — some loggers write the
     // whole session that way. They form one more run of their own.
-    points.extend(
+    points_in_file.extend(
         gpx.waypoints
             .into_iter()
             .filter_map(|waypoint| track_point(waypoint, segment)),
     );
 
-    Ok(segment + 1)
+    Ok(ParsedFile {
+        points_in_file,
+        segment_count: segment + 1,
+    })
 }
 
 /// Earliest and latest timestamp among `points`, or `None` if there are none.
@@ -741,6 +784,32 @@ mod tests {
             .expect("writing the test GPX");
             path
         }
+
+        /// A GPX holding a track segment *and* standalone waypoints, so the file
+        /// consumes two segment ids rather than one.
+        fn gpx_with_waypoints(&self, name: &str, trk: &[&str], wpt: &[&str]) -> PathBuf {
+            let point = |tag: &str, times: &[&str]| -> String {
+                times
+                    .iter()
+                    .map(|t| {
+                        format!(
+                            r#"<{tag} lat="47.0" lon="-122.0"><time>2022-01-01T{t}Z</time></{tag}>"#
+                        )
+                    })
+                    .collect()
+            };
+            let path = self.0.join(name);
+            std::fs::write(
+                &path,
+                format!(
+                    r#"<?xml version="1.0"?><gpx version="1.1" creator="test">{}<trk><trkseg>{}</trkseg></trk></gpx>"#,
+                    point("wpt", wpt),
+                    point("trkpt", trk)
+                ),
+            )
+            .expect("writing the test GPX");
+            path
+        }
     }
 
     impl Drop for ScratchDir {
@@ -802,5 +871,68 @@ mod tests {
         let rendered = format!("{error:#}");
         assert!(rendered.contains("overlapping"), "{rendered}");
         assert!(rendered.contains("No sidecars were written"), "{rendered}");
+    }
+
+    /// The rebasing arithmetic, on the one shape that can actually expose it.
+    ///
+    /// A file's standalone waypoints occupy a segment id of their own, so a file
+    /// with both a track and waypoints consumes *two*. If `segment_count` counted
+    /// only the ids visibly used, the next file would be rebased one too low and
+    /// land on top of this file's waypoint run — making the seam between two
+    /// separate recordings look like one contiguous segment.
+    #[test]
+    fn a_files_waypoints_consume_a_segment_id_of_their_own() {
+        let dir = ScratchDir::new("waypoint-segment");
+        let first = dir.gpx_with_waypoints(
+            "first.gpx",
+            &["00:00:00", "00:00:10"],
+            &["00:00:20", "00:00:30"],
+        );
+        let second = dir.gpx("second.gpx", &["00:01:00", "00:01:10"]);
+
+        let track = Track::load(&[first, second]).expect("both files are valid and disjoint");
+        assert_eq!(track.point_count(), 6);
+
+        // Both holes below are 0 m apart and within `max_seconds`, so nothing but
+        // the segment ids can reject them.
+        for (ts, what) in [
+            (
+                1_640_995_215,
+                "the track-to-waypoint break inside the first file",
+            ),
+            (
+                1_640_995_245,
+                "the seam between the first file's waypoints and the second file",
+            ),
+        ] {
+            match track.lookup(ts, DEFAULT) {
+                Lookup::InGap(gap) => assert!(
+                    gap.across_segments,
+                    "{what} must read as a segment break, got {gap:?}"
+                ),
+                other => panic!("expected InGap at {what}, got {other:?}"),
+            }
+        }
+    }
+
+    /// Parsing runs in parallel, so which worker fails first is a race. The file
+    /// reported must still be the first one on the command line.
+    #[test]
+    fn the_first_unreadable_file_is_reported_whichever_worker_fails_first() {
+        let dir = ScratchDir::new("bad-files");
+        let missing = [dir.0.join("aaa-missing.gpx"), dir.0.join("zzz-missing.gpx")];
+
+        // Repeated because this is a scheduling property: one pass could pick the
+        // right file by luck.
+        for _ in 0..20 {
+            let error = match Track::load(&missing) {
+                Err(error) => error,
+                Ok(_) => panic!("neither file exists"),
+            };
+
+            let rendered = format!("{error:#}");
+            assert!(rendered.contains("aaa-missing"), "{rendered}");
+            assert!(!rendered.contains("zzz-missing"), "{rendered}");
+        }
     }
 }
