@@ -215,6 +215,20 @@ risk concentrates in the `0.x` crates: `gpx`, `chrono`, `time`, `indicatif`.
   text quoted verbatim from another tool so it stays greppable — the nom-exif
   `Incomplete(Size(169858))` error is the live example — and years, model numbers,
   UTC offsets and coordinate encodings, none of which are quantities.
+
+  **Hand-written on purpose, and that is settled — do not reopen it.** The question
+  that keeps coming back is "surely Rust has Python's `f"{n:,}"`". **It does not.**
+  `std::fmt`'s spec has fill, align, width, precision and sign, and nothing for digit
+  grouping; separators are a localization question and std does no localization. So
+  `format!("{:>7}", 3883)` can only produce `   3883`, and there is no more Rustonic
+  spelling waiting to be found. The alternatives were weighed and declined: the
+  `thousands` and `num-format` crates are a dependency for twelve unit-tested lines
+  with no locale surface, and a `Display` newtype — normally the right instinct under
+  constraint 3 — **silently ignores `{:>7}`** unless it routes through `f.pad()`,
+  which takes a `&str` and so allocates the very `String` it was meant to avoid.
+  Every call site here is a width-7 summary column, so that trade is a straight loss.
+  `count(n)` returning a `String` is the boring version that cannot get the padding
+  wrong. If this comes up again, cite this paragraph and move on.
 - Photos outside the track are skipped and reported — no clamping, no
   extrapolation, no tolerance window. With several GPX files that means outside the
   *union* of them; a photo landing in the seam between two files is a gap, not an
