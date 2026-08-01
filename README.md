@@ -81,8 +81,10 @@ one would make the geotag depend on the order you listed the files. Run overlapp
 tracks as separate passes instead — photos outside a track are skipped, so a later
 pass tags only what the earlier one left alone.
 
-Canon CR3 ships first. Other formats (Nikon NEF and friends) are a small,
-mechanical addition — see the Format extensibility section of the plan.
+Canon CR3 ships first. Adding a format is a one-row change to a table *for anything
+the EXIF parser already reads* — CR3, Fujifilm RAF, Phase One IIQ and TIFF. Nikon
+NEF, Sony ARW and DNG are **not** in that set: those need a different parser behind
+the table, not just a row. See the Format extensibility section of the plan.
 
 ### Behavior worth knowing
 
@@ -144,6 +146,11 @@ Two traps if you benchmark this yourself: a warm page cache measures RAM rather 
 storage and understates cold read scaling by more than an order of magnitude, and
 *overwriting* an existing sidecar costs about 2.3× less than *creating* one, so
 delete the `.xmp` files between runs instead of using `--force`.
+
+**Tracks are parsed in parallel too**, which matters when you pass a lot of them:
+seven tracks of one trip (15.4 MB, 75,728 points) take 658 ms at `-j 1` and 215 ms
+at `-j 8`. This scales with the number of files, not their total size — one large
+track sets the floor.
 
 ## Design constraints
 

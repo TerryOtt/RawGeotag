@@ -12,7 +12,7 @@
 //!
 //! When two formats end up with identical arms that is not duplication to factor
 //! away; it is the code stating plainly that the formats do not differ. Collapse
-//! them with `Self::Cr3 | Self::Nef => ...` and split the arm when one diverges.
+//! them with `Self::Cr3 | Self::Raf => ...` and split the arm when one diverges.
 //!
 //! **What limits this table is `nom-exif`, not the table.** It reads CR3, RAF,
 //! IIQ and TIFF — so a TIFF-based raw may well need nothing but a row here, and

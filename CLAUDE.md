@@ -177,8 +177,8 @@ correctly and `-validate` is OK.
 
 **Output is deterministic** — same input at `--jobs 1`, `2` and `16` produced
 byte-identical sidecars and identical warning lists over the 3883-file set. Re-run
-that check after any change to the phase structure, the outcome enums, or reporting
-order.
+that check after any change to the phase structure, the outcome enums, reporting
+order, or the GPX load path (which is parallel too, see below).
 
 Note ExifTool calls the XMP `exif:GPSTimeStamp` property **`GPSDateTime`**; asking it
 for `GPSTimeStamp` on a sidecar returns nothing, which is a naming difference, not a
@@ -227,10 +227,27 @@ already under two seconds and wreck the case that takes minutes.
 parallelizing only ~3x and plateauing near 4 threads; that measured RAM, not storage.
 Always evict or use untouched data before quoting read-scaling numbers.
 
-Sidecar *writing* does not parallelize at all on NTFS — temp-create plus rename are
-two directory metadata operations per file and NTFS serializes those within a
-directory. Note also that *creating* a new sidecar costs ~2.3x *overwriting* an
-existing one, so a `--force` re-run is not a valid benchmark of a fresh import;
+**GPX parsing is a serial-feeling cost that turned out to be worth parallelizing.**
+Seven tracks of one trip (15.4 MB, 75,728 points) took ~700 ms to parse — comparable
+to an entire local 3883-file run — and all of it lands before a single photo is
+touched. `Track::load` now parses the files with `par_iter`: **658 ms at `-j 1`,
+390 at the `-j 2` default, 269 at `-j 4`, 215 at `-j 8`.** It scales with *file
+count*, not total bytes — the floor is the largest single file, ~170 ms for a 4 MB
+track. The slowness is `xml-rs`, which the `gpx` crate uses internally; quick-xml
+would be far faster, but forking `gpx` to get it is not worth it.
+
+This *softens* the `--jobs` reasoning above without overturning it. Threads now help
+a phase the local-NVMe case previously had no use for them in, so a local run with
+many tracks is a case where a higher `-j` is defensible. But the 175 ms between
+`-j 2` and `-j 8` is smaller than the write contention a high `-j` costs on NTFS, so
+the default stays 2. Everything after the parse runs in argument order — segment
+ids, which of several bad files is reported, the overlap message — so none of this
+is visible in output at any `-j`.
+
+Sidecar *writing* does not parallelize at all on NTFS — temp-create plus rename
+(via `tempfile`) are two directory metadata operations per file and NTFS serializes
+those within a directory. Note also that *creating* a new sidecar costs ~2.3x
+*overwriting* an existing one, so a `--force` re-run is not a valid benchmark of a fresh import;
 delete the `.xmp` files first. Do not "fix" any of this by dropping the atomic write.
 
 One deviation from the plan, deliberately: a file with **no EXIF at all** returns

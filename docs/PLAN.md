@@ -12,7 +12,7 @@ Three constraints shape the design:
 2. **Minimize wall-clock time.** The workload is embarrassingly parallel — each file's outcome depends only on that file and a read-only track index. See Concurrency, which drives several structural decisions rather than being a bolt-on.
 3. **Readable over clever, and no surprises for an experienced Rust reviewer.** Where a choice is between a clever mechanism and an obvious one, take the obvious one. See Format extensibility, where this rules out an entire category of design.
 
-CR3 ships first; the format seam is designed so NEF and others are a small, mechanical addition.
+CR3 ships first; the format seam is designed so that any format the EXIF parser already reads is a small, mechanical addition. NEF and the other TIFF-based raws are *not* in that set — see Format extensibility for what they actually cost.
 
 ## Prerequisite
 
@@ -87,9 +87,12 @@ Positional order follows the original spec. `--utc-offset` is a flag rather than
 | `indicatif` | 0.18 | thread-safe progress bar |
 | `chrono` | 0.4 | EXIF-side time (already nom-exif's public type) |
 | `time` | 0.3 | GPX-side time (already gpx's public type) |
+| `tempfile` | 3 | atomic sidecar writes — unique temp names, cleanup on drop |
 | `anyhow` | 1 | error context |
 
 These versions are indicative of what the design was written against, not a statement of what is current. Confirm against crates.io (`cargo search <crate> --limit 1`) before putting any of them in `Cargo.toml`; see CLAUDE.md for why the `0.x` crates in particular go stale silently.
+
+**This list has been audited against the alternatives, and the rebuttals live in the code, not here.** The obvious "why didn't you use X?" for each spot is answered at the site that invites the question, where it cannot drift away from what it describes: `Cargo.toml` for `nom-exif` over the far more popular `kamadak-exif` (which cannot read CR3 at any version) and for why two time crates is not sloppiness; `track.rs` for hand-rolled haversine over `geo`; `xmp.rs` for a format template over `xmp-writer`; `raw.rs` for the offset parser; `format.rs` for `rawler`. Read those before proposing a swap.
 
 Two time crates appear because they are the public types of two upstream crates. Do **not** write conversions between them — normalize both sides to `i64` Unix seconds at the boundary (`chrono::DateTime::timestamp()`, `time::OffsetDateTime::unix_timestamp()`) and do all correlation arithmetic in that single scalar domain.
 
@@ -106,7 +109,9 @@ src/
 
 ## Format extensibility
 
-**What actually varies between raw formats is much less than it appears.** nom-exif dispatches on file *content*, not extension, and already handles TIFF-based raws — NEF is TIFF-based and is expected to work through that path with no new parsing code at all. (Expected, not proven: verify against a real NEF before advertising support.) A per-format parser layer would therefore start life as N modules with identical bodies, which is speculative abstraction, not extensibility.
+**What actually varies between raw formats is much less than it appears.** nom-exif dispatches on file *content*, not extension, so a format it already parses needs a row in the table and nothing else. A per-format parser layer would therefore start life as N modules with identical bodies, which is speculative abstraction, not extensibility.
+
+**But the table's reach is nom-exif's reach, and that is narrower than this section originally assumed.** Its supported list is JPEG, PNG, HEIC/HEIF, AVIF, TIFF, Phase One IIQ, Fujifilm RAF and Canon CR3. **NEF, ARW, DNG, ORF, PEF and RW2 are not on it.** An earlier draft here reasoned that NEF would come free because NEF is TIFF-based; that may still hold in practice and is worth ten minutes with a real file to settle, but it is an untested hope rather than a design property, and a row in the table does not conjure a parser. The pure-Rust crate that does cover those formats is `rawler` — `Decoder::raw_metadata()` reads metadata without decoding the image — at a cost of ~106 transitive crates including a complete JPEG-XL decoder. That is the escape hatch when a second camera system actually arrives, not before; the note in `format.rs` says the same thing where someone adding a format will actually see it.
 
 So the seam is placed where variation genuinely lives: **extension mapping and per-format tag preferences**, expressed as an enum with a data table.
 
@@ -154,9 +159,9 @@ impl RawFormat {
 }
 ```
 
-**Adding NEF is then:** add the variant → the compiler flags every `match` that no longer compiles → fill in those arms → add a fixture test. Forgetting a spot is a **build error, not a runtime surprise**, which is precisely the property a trait-object registry or a `HashMap` of handlers would discard.
+**Adding a format is then:** add the variant → the compiler flags every `match` that no longer compiles → fill in those arms → add a fixture test against a real file of that format. Forgetting a spot is a **build error, not a runtime surprise**, which is precisely the property a trait-object registry or a `HashMap` of handlers would discard. This is the whole cost only when the parser already reads the format — Fujifilm RAF is such a case; NEF is not.
 
-When two formats end up with identical arms, that is not duplication to factor away — it is the code stating plainly that these formats do not differ. Collapse them with `Self::Cr3 | Self::Nef => ...` and split the arm when one actually diverges.
+When two formats end up with identical arms, that is not duplication to factor away — it is the code stating plainly that these formats do not differ. Collapse them with `Self::Cr3 | Self::Raf => ...` and split the arm when one actually diverges.
 
 **Start flat, promote later.** `format.rs` is one file. If some format eventually needs genuinely bespoke extraction, that match arm calls into its own module and `format.rs` becomes `format/mod.rs` + `format/rw2.rs`. In Rust that promotion is a rename, not a refactor — so there is no cost to deferring it, and the per-format subdirectory appears only once a format has earned one.
 
