@@ -83,8 +83,10 @@ pass tags only what the earlier one left alone.
 
 Canon CR3 ships first. Adding a format is a one-row change to a table *for anything
 the EXIF parser already reads* — CR3, Fujifilm RAF, Phase One IIQ and TIFF. Nikon
-NEF, Sony ARW and DNG are **not** in that set: those need a different parser behind
-the table, not just a row. See the Format extensibility section of the plan.
+NEF has been tested and is a larger job: it parses only from a whole-file buffer,
+not the streaming reader used here, so it needs a per-format read strategy and the
+I/O cost of reading entire ~22 MB files. Sony ARW and DNG are not supported by the
+EXIF parser at all. See the Format extensibility section of the plan.
 
 ### Behavior worth knowing
 

@@ -15,14 +15,21 @@
 //! them with `Self::Cr3 | Self::Raf => ...` and split the arm when one diverges.
 //!
 //! **What limits this table is `nom-exif`, not the table.** It reads CR3, RAF,
-//! IIQ and TIFF — so a TIFF-based raw may well need nothing but a row here, and
-//! is worth simply trying against a real file. But NEF, ARW, DNG, ORF, PEF and
-//! RW2 are not on its list, and adding a row does not conjure a parser. The pure-
-//! Rust crate that does cover them is `rawler` (`Decoder::raw_metadata()` reads
-//! metadata without decoding the image); it costs ~106 transitive crates,
-//! including a complete JPEG-XL decoder, which is why it is not here for a
-//! Canon-only tool. Reach for it when a second camera system actually arrives —
-//! not before, and not as a second parser alongside nom-exif.
+//! IIQ and TIFF; NEF, ARW, DNG, ORF, PEF and RW2 are not on its list, and adding
+//! a row does not conjure a parser.
+//!
+//! NEF specifically has been tested against 150 real files and is the instructive
+//! case: it parses through `MediaSource::from_memory` but *not* through
+//! `MediaSource::open`, which is what `raw.rs` uses. Supporting it therefore means
+//! a per-format choice of how to open the file — the first thing that would earn a
+//! new column here — plus reading whole ~22 MB files. CLAUDE.md has the numbers.
+//!
+//! For the formats nom-exif cannot read at all, the pure-Rust alternative is
+//! `rawler` (`Decoder::raw_metadata()` reads metadata without decoding the image);
+//! it costs ~106 transitive crates, including a complete JPEG-XL decoder, which is
+//! why it is not here for a Canon-only tool. Reach for it when a second camera
+//! system actually arrives — not before, and not as a second parser alongside
+//! nom-exif.
 
 use nom_exif::ExifTag;
 
