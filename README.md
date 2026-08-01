@@ -128,6 +128,41 @@ need a different one. See the Format extensibility section of the plan.
 - **Exit code** is non-zero if any file errored or the run was gated; deliberate
   skips are still a clean exit.
 
+## XMP sidecars, and who they are written for
+
+Each sidecar takes the Adobe naming convention — `IMG_1234.CR3` → `IMG_1234.xmp` — and
+holds GPS coordinates, altitude and a timestamp as `exif:` properties in an ordinary
+attribute-form RDF packet. Nothing exotic; ExifTool reads them back and `-validate`
+passes.
+
+**The explicit target is current Adobe Lightroom Classic.** The intended workflow is to
+geotag *before* import, so photos arrive in the catalog already positioned. Output was
+verified against **Lightroom Classic 15.4.1** by geotagging the same photos from the
+same tracks in Lightroom itself and diffing: the coordinate encoding, GPS namespace,
+`GPSVersionID` and serialization form all match what Lightroom writes, and positions
+agree to **0.02–0.12 m on CR3 and 0.33–0.53 m on NEF**. (That residual is sub-second
+capture times — Lightroom uses `SubSecTimeOriginal`, this tool truncates to whole
+seconds. It is an order of magnitude inside the 5 m rule above.)
+
+**Caveat emptor beyond that.** Two limits worth being explicit about:
+
+- **Older Lightroom is untested.** The GPS encoding has not changed across Adobe XMP
+  Core 5.6-c140 (2019), 7.0-c000 (2024) and 15.4.1, which is reason for optimism and
+  not evidence.
+- **Other XMP consumers are untested entirely** — Capture One, Bridge, digiKam,
+  darktable, Photo Mechanic. The packet is deliberately conventional, so there is no
+  particular reason to expect trouble, but no one has checked.
+
+**Where they conflict, Lightroom wins.** The packet is not changed except to follow a
+change in what current Lightroom emits — that is the one thing that justifies touching
+it. If some other tool wants a different spelling of the same data, that is a
+compatibility request, not a bug in this one. See
+[`docs/LIGHTROOM-XMP.md`](docs/LIGHTROOM-XMP.md) for the comparison method and results.
+
+Note also that this tool **skips any photo that already has a sidecar** (unless
+`--force`). That is what makes the geotag-then-import order the safe one: run it before
+Lightroom has written anything, and there is nothing of Lightroom's to collide with.
+
 ## Performance
 
 **`--jobs` defaults to 2.** That is well below the core count, and deliberate: the
@@ -205,3 +240,6 @@ writes, that set the wall clock.
 - **Fast.** Optimize for wall-clock time. The work is parallel by design, but more
   threads is not automatically faster — see Performance.
 - **Readable over clever.** No surprises for an experienced Rust reviewer.
+- **Current Lightroom is the XMP reference.** The XMP spec is loose enough that
+  conforming to it proves little, so what current Lightroom Classic emits is the
+  standard the sidecars are held to — see XMP sidecars above.
