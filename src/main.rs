@@ -744,6 +744,29 @@ mod tests {
         assert_eq!(thousands(-999), "-999");
     }
 
+    /// The CLI speaks seconds; `track.rs` speaks `TimeDelta`. This is the seam
+    /// between them, and it is only checked here.
+    ///
+    /// Parses real argv rather than reading the constant back, so it exercises
+    /// the clap attribute itself — replacing `default_value_t =
+    /// GapLimits::DEFAULT_GAP_SECONDS` with a bare literal would still compile,
+    /// still pass every other test, and quietly change which photos get tagged.
+    #[test]
+    fn the_cli_gap_default_matches_the_shipped_limit() {
+        let args = Args::parse_from(["rawgeotag", "photos", "cr3", "track.gpx"]);
+
+        assert_eq!(
+            TimeDelta::seconds(args.max_gap),
+            GapLimits::DEFAULT.max_gap,
+            "--max-gap default drifted from GapLimits::DEFAULT"
+        );
+        assert_eq!(
+            args.max_distance,
+            GapLimits::DEFAULT.max_meters,
+            "--max-distance default drifted from GapLimits::DEFAULT"
+        );
+    }
+
     #[test]
     fn extension_matching_ignores_case() {
         assert!(has_extension(Path::new("/photos/IMG_1234.CR3"), "cr3"));

@@ -257,9 +257,9 @@ Shift the resolved `DateTime<FixedOffset>` to UTC with `.with_timezone(&Utc)` an
 
 Load once at startup, before *Phase A*. Flatten every `track.segments[].points[]` plus standalone `gpx.waypoints` into one `Vec<TrackPoint { at: DateTime<Utc>, lat: f64, lon: f64, ele: Option<f64>, segment: u32 }>`, dropping points with no timestamp, then sort by `at` and dedupe. (`segment` postdates the original design — it identifies the contiguous recording run a point came from, and is what lets the reversed gap rule below refuse to bridge a `<trkseg>` break.) After construction it is immutable and freely shared across threads.
 
-Look up by `slice::binary_search_by_key(&ts, |p| p.ts)`:
+Look up by `slice::binary_search_by_key(&at, |p| p.at)` — `DateTime<Utc>` is `Ord`, so the search needs no key extraction into a scalar:
 - exact hit → use that point
-- between `i` and `i+1` → linear interpolation, fraction `f = (ts - a.ts) / (b.ts - a.ts)`
+- between `i` and `i+1` → linear interpolation, fraction `f = (at - a.at).as_seconds_f64() / (b.at - a.at).as_seconds_f64()`, subtracting instants to get `TimeDelta`s and dividing those
 - **before the first or after the last point → skip the file and record it** (per the range decision: no tolerance window, no clamping, no extrapolation)
 
 Interpolation details:

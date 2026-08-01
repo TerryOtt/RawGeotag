@@ -642,6 +642,40 @@ mod tests {
     }
 
     #[test]
+    fn a_gap_exactly_at_the_time_limit_is_still_bridged() {
+        // The limit is a maximum, not a threshold to fall short of: the check is
+        // `>`, so exactly 60 s interpolates and 61 s does not. Worth pinning
+        // because the comparison changed type — it was `i64 > i64` and is now
+        // `TimeDelta > TimeDelta` — and an off-by-one here silently changes which
+        // photos get tagged rather than failing loudly.
+        let seconds = DEFAULT.max_gap.num_seconds();
+        let track = track(vec![
+            point(1000, 47.0, -122.0, None),
+            point(1000 + seconds, 47.00001, -122.0, None),
+        ]);
+
+        match track.lookup(at(1000 + seconds / 2), DEFAULT) {
+            Lookup::Found(_) => {}
+            other => panic!("a gap of exactly {seconds}s must still bridge, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn one_second_past_the_time_limit_is_not_bridged() {
+        // The other side of the same boundary, so the pair brackets it exactly.
+        let seconds = DEFAULT.max_gap.num_seconds();
+        let track = track(vec![
+            point(1000, 47.0, -122.0, None),
+            point(1000 + seconds + 1, 47.00001, -122.0, None),
+        ]);
+
+        match track.lookup(at(1000 + seconds / 2), DEFAULT) {
+            Lookup::InGap(gap) => assert_eq!(gap.duration.num_seconds(), seconds + 1),
+            other => panic!("a gap of {}s must be refused, got {other:?}", seconds + 1),
+        }
+    }
+
+    #[test]
     fn a_segment_boundary_is_never_bridged_however_close_the_points_are() {
         // 1 second and centimeters apart, but from different recording runs.
         let adjacent = track(vec![
@@ -918,8 +952,8 @@ mod tests {
         let track = Track::load(&[first, second]).expect("both files are valid and disjoint");
         assert_eq!(track.point_count(), 6);
 
-        // Both holes below are 0 m apart and within `max_seconds`, so nothing but
-        // the segment ids can reject them.
+        // Both holes below are 0 m apart and within `max_gap`, so nothing but the
+        // segment ids can reject them.
         for (ts, what) in [
             (
                 1_640_995_215,
