@@ -56,6 +56,26 @@ accuracy — never clamp, extrapolate, or bridge a hole to raise the tagged coun
    This is an operating rule for whoever is working in this repo, **not** a feature
    of the tool — do not hardcode a drive letter into shipped code.
 
+6. **A Lightroom-created sidecar is locked. Never delete or modify one, anywhere,
+   ever.** Unlike constraint 5 this is not about a drive — it follows the *file*.
+   A copy staged on `N:\` is still a Lightroom sidecar and is still untouchable,
+   because a "fixed" copy invites being copied back over the original.
+
+   **How to tell whose it is:** `exiftool -XMPToolkit <file>.xmp`. Lightroom's say
+   `Adobe XMP Core ...`; ours say `rawgeotag <version>`, written as `x:xmptk` by
+   `xmp::render`. That one field is the whole test, and it is worth running before
+   any operation that could write.
+
+   Why it is absolute: those files carry develop settings, keywords, ratings and
+   crop data that **exist nowhere else** — they are not derived from the raw and
+   cannot be regenerated. A geotag is recoverable; twelve years of edits are not.
+
+   **The tool's default behavior is already correct and is load-bearing**: existing
+   sidecars are skipped with a warning, and only `--force` overwrites. Do not
+   change that default, and do not reach for `--force` on any tree that contains
+   Lightroom sidecars. If a photo already has one, it does not get geotagged by
+   this tool — that is the accepted outcome, not a problem to engineer around.
+
 ## Execution shape: two phases with a gate between them
 
 **The phase boundary is not where the progress bars suggest.** They read `reading
@@ -420,8 +440,10 @@ is visible in output at any `-j`.
 Sidecar *writing* does not parallelize at all on NTFS — temp-create plus rename
 (via `tempfile`) are two directory metadata operations per file and NTFS serializes
 those within a directory. Note also that *creating* a new sidecar costs ~2.3x
-*overwriting* an existing one, so a `--force` re-run is not a valid benchmark of a fresh import;
-delete the `.xmp` files first. Do not "fix" any of this by dropping the atomic write.
+*overwriting* an existing one, so a `--force` re-run is not a valid benchmark of a
+fresh import; delete the `.xmp` files first — **on a staged copy under `N:\`, never
+on `Q:\` and never a Lightroom sidecar** (constraints 5 and 6; that is the whole
+reason staging exists). Do not "fix" any of this by dropping the atomic write.
 
 One deviation from the plan, deliberately: a file with **no EXIF at all** returns
 `nom_exif::Error::ExifNotFound`, and `raw.rs` maps that to `Capture::NoCaptureTime`
