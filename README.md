@@ -6,9 +6,9 @@ Lightroom Classic picks the coordinates up when the images are imported.**
 That is the goal, stated narrowly on purpose. Raw files carry a capture timestamp but
 no location; a GPS logger records a track over the same period. RawGeotag correlates
 the two by time, linearly interpolating position between track points, and writes the
-result as an XMP sidecar next to each raw file — in the form current Lightroom Classic
-writes and reads, so an import lands already positioned with no round trip through
-Lightroom's Map module.
+result as an [Extensible Metadata Platform][xmp] (XMP) sidecar next to each raw file —
+in the form current Lightroom Classic writes and reads, so an import lands already
+positioned with no round trip through Lightroom's Map module.
 
 **Other uses are plausible but incidental.** The sidecars are ordinary XMP and other
 tools may well read them, but Lightroom is the only consumer this is built and verified
@@ -144,6 +144,12 @@ holds GPS coordinates, altitude and a timestamp as `exif:` properties in an ordi
 attribute-form RDF packet. Nothing exotic; ExifTool reads them back and `-validate`
 passes.
 
+XMP is standardized as [ISO 16684-1][iso] and published by Adobe as the [XMP
+Specifications][xmp]; sidecar files specifically are the subject of Part 3, *Storage in
+Files*. Worth knowing that the spec leaves a great deal optional — the packet wrapper
+and property set here are both places where conforming implementations legitimately
+differ — which is why conformance alone is not the bar this tool is held to.
+
 **The explicit target is current Adobe Lightroom Classic.** The intended workflow is to
 geotag *before* import, so photos arrive in the catalog already positioned. Output was
 verified against **Lightroom Classic 15.4.1** by geotagging the same photos from the
@@ -252,3 +258,6 @@ writes, that set the wall clock.
 - **Current Lightroom is the XMP reference.** The XMP spec is loose enough that
   conforming to it proves little, so what current Lightroom Classic emits is the
   standard the sidecars are held to — see XMP sidecars above.
+
+[xmp]: https://developer.adobe.com/xmp/docs/xmp-specifications/
+[iso]: https://www.iso.org/standard/75163.html
