@@ -368,6 +368,58 @@ Note ExifTool calls the XMP `exif:GPSTimeStamp` property **`GPSDateTime`**; aski
 for `GPSTimeStamp` on a sidecar returns nothing, which is a naming difference, not a
 bug.
 
+## The XMP we emit, measured against Lightroom's own
+
+**The workflow this tool serves is: geotag first, import into Lightroom second.** That
+ordering is not just convenience — it is the only window in which no Lightroom sidecar
+exists yet, so constraint 6 never binds and no photo has to be declined because
+Lightroom got there first. Terry runs **Lightroom Classic 15.4.1**.
+
+The recurring question is whether our packet should look more like Lightroom's.
+**Answer: it already does where it counts, and the remaining differences are safe.**
+Compared against real LR sidecars on `Q:\` — `2019\2019-01-19\DSC_0001.xmp`
+(`Adobe XMP Core 5.6-c140`) and `2023\2023-05-06\DSC_0218.xmp` plus
+`2023\2023-09-10\3X8A0001.xmp` (`7.0-c000`, written by LR Classic 13.4):
+
+| | Lightroom | rawgeotag |
+|---|---|---|
+| Packet wrapper | **none** — starts `<x:xmpmeta`, ends `</x:xmpmeta>\n`, no BOM | `<?xpacket …?>` both ends |
+| GPS namespace | `xmlns:exif="http://ns.adobe.com/exif/1.0/"` | identical |
+| Coordinates | `exif:GPSLatitude="32,53.9148203526N"` | same `DDD,MM.mmmk` form, 4 decimals not ~10 |
+| `GPSVersionID` | `2.2.0.0` | identical |
+| Altitude | `exif:GPSAltitude="32700/10000"`, **no** `GPSAltitudeRef` | `"123456/1000"` **plus** the ref |
+| `GPSMapDatum`, `GPSTimeStamp` | absent | present |
+| Serialization | attribute-form, one `rdf:Description` | identical |
+
+**Lightroom's GPS flavor has not moved since at least 2019.** Namespaces were added
+across those eras (`exifEX`, `crd`, `xmpDM`) and `x:xmptk` changed, but how GPS is
+expressed did not change at all. *(Pending: a 15.4.1-written sample of each format to
+confirm this still holds; everything above tops out at 13.4.)*
+
+**Do not restyle the packet to match.** Every difference is additive or cosmetic and
+none is malformed: the three properties we write and LR does not are all in Adobe's own
+`exif:` namespace and are what ExifTool emits, and the `<?xpacket?>` wrapper is
+likewise ExifTool's default, optional per spec, and read by LR constantly. Dropping it
+to match LR byte-for-byte would make the output *less* conventional for every other
+tool in order to erase a difference that is not a problem.
+
+**Why adding LR-native fields buys nothing: our sidecar only has to survive one read.**
+On import LR takes the GPS into the catalog, and the first time it writes metadata back
+it replaces our file wholesale with its own — `crs:`, `xmpMM:History`,
+`photoshop:EmbeddedXMPDigest`. Fields added to look more native do not outlive the
+import, and each one is a new chance to be wrong.
+
+**`x:xmptk="rawgeotag <version>"` stays honest, and that is not the risky part.** That
+field's job is naming the writer. It is also the whole of constraint 6's test, so
+forging it would disarm the one check that protects Lightroom sidecars.
+
+Two optional changes exist, neither yet justified. **Coordinate precision:** 4 decimal
+minutes quantizes to ~0.19 m — inside the mantra, but the floor on what any field
+spot-check can demonstrate; going to 7 would sharpen that and would legitimately move
+all three fixture hashes. **`photoshop:SidecarForExtension`:** only earns its place if
+`IMG_1234.CR3` and `IMG_1234.JPG` ever share a folder, which makes `IMG_1234.xmp`
+ambiguous.
+
 ## The CR3 timezone trap — do not regress this
 
 nom-exif returns CR3 `DateTimeOriginal` as **`Naive`** and exposes
