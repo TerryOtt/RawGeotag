@@ -811,10 +811,10 @@ fn describe_offsets(offsets: &BTreeMap<i32, usize>) -> Option<String> {
         .collect();
 
     let tail = match offsets.len() {
-        2 => "two clocks in one run",
-        3.. => "several clocks in one run",
         // One zone, and it is not UTC — an all-UTC run returned above.
-        _ => "cameras are normally on UTC",
+        0 | 1 => "cameras are normally on UTC",
+        2 => "two clocks in one run",
+        _ => "several clocks in one run",
     };
     Some(format!("{} — {tail}", parts.join(", ")))
 }
