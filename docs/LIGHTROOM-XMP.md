@@ -11,29 +11,56 @@ version. It is versioned for the same reason the fixture harness is: the staged 
 lives on disposable storage and the recorded findings are worth nothing if the method
 that produced them is gone.
 
-## Start here: the two-minute check
+## Check both directions, and check them every upgrade
 
-**The requirement is that Lightroom *reads* what we write. Everything below tests
-what Lightroom *writes*, which is a proxy for it.** The proxy is a good one — a
-divergence in emission is the earliest warning that the encoding is moving — but it
-is not the thing itself, and it costs an hour. Test the thing itself first:
+The requirement is that Lightroom **reads** ours. But reading is a *lagging*
+indicator: by the time it fails you are already broken, and possibly broken in a
+hotel room with a card reader and 2,000 photos waiting. What Lightroom **emits** is
+the *leading* one. If its spelling of a geotag starts moving, follow it — so the gap
+never widens into something that one day stops being accepted.
+
+**Neither check substitutes for the other, and both are cheap enough to run on every
+Lightroom upgrade.**
+
+| | Question | Tells you | Cost |
+|---|---|---|---|
+| **1** | Does Lightroom still read ours? | whether we are broken *now* | 2 min |
+| **2** | How does Lightroom spell a geotag *now*? | whether the format is *moving* | ~5 min |
+| **3** | Does its position agree with ours on the same photo and track? | whether our interpolation is right | ~1 hr |
+
+Run **1 and 2 on every upgrade**. Run **3** only when 2 shows movement, or when our
+own interpolation has changed and positional agreement needs re-establishing — that
+is what it was built for, and it is why it costs what it costs.
+
+### 1. Does Lightroom still read ours?
 
 1. Take a raw and its rawgeotag sidecar (any fixture directory after a normal run).
 2. Copy both to a scratch folder on `N:\` and import with **Add**.
 3. Look at the Map module, or the GPS field in the Metadata panel.
 
-**If the pin lands where it should, current Lightroom still ingests our packet and
-nothing is broken.** That is the whole requirement, confirmed in two minutes.
+If the pin lands where it should, current Lightroom ingests our packet and nothing is
+broken. This works *because* of the hazard step 3 must avoid — Lightroom adopts GPS
+from a sidecar present at import. What ruins the emission diff is exactly what makes
+this check possible.
 
-Note this works *because* of the hazard the full method has to avoid: Lightroom
-adopts GPS from a sidecar that is present at import. What ruins the emission diff is
-exactly what makes this check possible.
+### 2. How does Lightroom spell a geotag now?
 
-Run the full comparison below when the quick check fails, when Lightroom crosses a
-major version, or when you want to know *how* its output is drifting rather than
-merely that ours still works.
+**You do not need a tracklog to read a format off Lightroom.** Set GPS by hand on one
+photo — Metadata panel, GPS field — then **Metadata ▸ Save Metadata to File**, and
+read the sidecar it writes. No staging script, no tracklog, and none of the timezone
+trap below, all of which exist for the positional diff in step 3.
 
-## The method, and the one thing that makes it work
+Answer *The questions to ask* further down, and compare against the table in
+CLAUDE.md's *The XMP we emit*. Then apply the rule already recorded there: **follow a
+difference in kind, ignore an additive one.** Lightroom writing a new property we do
+not is not a reason to move; Lightroom writing *coordinates* differently is.
+
+**Known limit of this shortcut:** the Metadata panel's GPS field takes latitude and
+longitude. If altitude is what you need to see — the `/10000` rational, and whether
+`GPSAltitudeRef` has appeared — confirm whether manual entry carries it through, and
+fall back to a tracklog run for that row if it does not.
+
+### 3. The full same-photo, same-track diff
 
 **Lightroom and rawgeotag must tag the same photo from the same track.** Then any
 difference is purely encoding. Without that control, a position difference could be the
@@ -180,13 +207,17 @@ sidecars to diff. It would turn the hour below into a command.
 
 **Declined. Five reasons, roughly in order of weight.**
 
-1. **It automates the proxy, not the requirement.** The plugin diffs what Lightroom
-   *emits*. What we need is that Lightroom *ingests* what we write, and those come
-   apart: Adobe adding namespaces is near-certain and harmless — it has already done
-   it three times — while dropping support for reading a GPS encoding it wrote for
-   seven years is a different and far rarer act. The two-minute check at the top of
-   this file tests the requirement directly, which is better value than automating
-   the proxy.
+1. **What it would automate now costs about five minutes.** Step 2 above is the
+   emission monitoring the plugin was for, and it turns out not to need a tracklog, a
+   staged set, or the timezone dance — those belong to the positional diff, which is
+   a different job done for a different reason. Automating a five-minute manual check
+   with a Lua plugin is not a trade that pays.
+
+   *An earlier version of this entry argued the plugin "automates the proxy, not the
+   requirement", treating emission-watching as second-class. That was wrong and the
+   argument is withdrawn: emission is the leading indicator, and watching it is how
+   we avoid the day Lightroom stops accepting a format we let drift. The reason the
+   plugin loses is cost, not purpose.*
 2. **The guard shares a failure mode with the thing it guards.** A plugin is built on
    the Lightroom SDK, which Adobe also revises. It would break on exactly the events
    it exists to check, and you would find out at the moment you needed it — having

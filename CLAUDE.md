@@ -421,7 +421,14 @@ bug.
 **Closed on 2026-08-01 against Lightroom Classic 15.4.1 — closed against a *version*,
 not for all time.** The only thing that reopens it is evidence that current Lightroom
 emits or expects something different; on a major upgrade, re-run the exercise below
-and follow whatever it does now. Not spec-purity, not tidiness, not more precision,
+and follow whatever it does now.
+
+**Watch both directions, every upgrade.** That Lightroom still *reads* ours is the
+requirement, but it is a lagging signal — it fails only once we are already broken.
+What Lightroom *emits* is the leading one, and following a material change in it is
+how we avoid ever letting the gap widen into something that stops being accepted.
+[`docs/LIGHTROOM-XMP.md`](docs/LIGHTROOM-XMP.md) has both checks; together they cost
+under ten minutes, so there is no version worth skipping them for. Not spec-purity, not tidiness, not more precision,
 not a nicer-looking document, not a new crate that renders XMP — **a proposal resting
 on any of those is answered by this sentence.** The evidence here is a same-photo,
 same-track diff rather than a reading of the spec, so repeating it against 15.4.1 will
