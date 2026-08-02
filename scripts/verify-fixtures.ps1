@@ -12,6 +12,12 @@
     (+00:00 is a no-op) and Sedona (no offset at all) while silently misplacing
     every Rockies photo by ~50 km, which would still tag and never warn.
 
+    Each fixture is run three times, which is why the loop below invokes the binary
+    more than once: a dry run that must write nothing, the real run whose sidecars
+    are hashed against a recorded aggregate, and a --dry-run --force rehearsal --
+    the documented preview of a destructive run -- that must leave those sidecars
+    untouched.
+
     This script and the manifests live in the repo; the raws do not, since they are
     222 MB. See docs/FIXTURES.md for what the fixture holds and how to rebuild it.
 

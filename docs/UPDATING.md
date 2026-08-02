@@ -121,7 +121,7 @@ run from a bash prompt either.
 
 No arguments are needed on this machine — the script defaults to the sibling directory
 `..\RawGeotag-fixtures` and to this repo's release binary. It writes nothing outside
-the fixture tree, touches no photo library, and finishes in well under a second.
+the fixture tree, touches no photo library, and finishes in about a second.
 
 A healthy run ends with `all fixtures pass` and exit code 0. Each fixture prints what
 it is there to exercise, so the output is also the explanation:
@@ -129,9 +129,14 @@ it is there to exercise, so the output is also the explanation:
 ```
 === cr3-rockies ===
     exercises: Streaming read path; EXIF offset +01:00 (real conversion)
+    dry run  : wrote nothing  OK
     count    : 2 sidecars  OK
     aggregate: <16 hex digits>  OK
+    rehearsal: --dry-run --force left them untouched  OK
 ```
+
+(`nef-sedona` prints one more, `gate`, since it is the set whose body records no
+EXIF timezone.)
 
 (The real aggregates are in the harness and in [`FIXTURES.md`](FIXTURES.md); they are
 deliberately not repeated here, so a legitimate packet change has two places to
