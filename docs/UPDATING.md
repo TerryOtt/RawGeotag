@@ -85,6 +85,23 @@ requirement. When a row shows `Latest` ahead of `Compat`:
 exposure is concentrated in the pre-1.0 crates: **`gpx`, `chrono`, `time`, `indicatif`,
 `nom-exif`**.
 
+### The workflow pins dependencies too, and `cargo outdated` cannot see them
+
+`.github/workflows/ci.yml` pins its actions by major tag, which never moves on its
+own and which nothing in this file's process would otherwise check. GitHub announces
+a stale one as a *run annotation* rather than a failure, so it is invisible unless
+someone opens a green run and reads it:
+
+```
+gh api repos/actions/checkout/releases/latest --jq .tag_name
+```
+
+**Ask the API, do not recall the number** — the same rule as the crates above, and it
+has already bitten once here in exactly the way that section warns about: a v5 was
+recommended from memory on the day v7.0.1 was current. The usual reason a bump is
+needed is the runner dropping a Node version, so check what the action runs on
+(`using:` in its `action.yml`) rather than assuming the tag is cosmetic.
+
 ## Step 3 — verify, and mean it
 
 ```
