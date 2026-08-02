@@ -11,6 +11,28 @@ version. It is versioned for the same reason the fixture harness is: the staged 
 lives on disposable storage and the recorded findings are worth nothing if the method
 that produced them is gone.
 
+## Start here: the two-minute check
+
+**The requirement is that Lightroom *reads* what we write. Everything below tests
+what Lightroom *writes*, which is a proxy for it.** The proxy is a good one — a
+divergence in emission is the earliest warning that the encoding is moving — but it
+is not the thing itself, and it costs an hour. Test the thing itself first:
+
+1. Take a raw and its rawgeotag sidecar (any fixture directory after a normal run).
+2. Copy both to a scratch folder on `N:\` and import with **Add**.
+3. Look at the Map module, or the GPS field in the Metadata panel.
+
+**If the pin lands where it should, current Lightroom still ingests our packet and
+nothing is broken.** That is the whole requirement, confirmed in two minutes.
+
+Note this works *because* of the hazard the full method has to avoid: Lightroom
+adopts GPS from a sidecar that is present at import. What ruins the emission diff is
+exactly what makes this check possible.
+
+Run the full comparison below when the quick check fails, when Lightroom crosses a
+major version, or when you want to know *how* its output is drifting rather than
+merely that ours still works.
+
 ## The method, and the one thing that makes it work
 
 **Lightroom and rawgeotag must tag the same photo from the same track.** Then any
@@ -148,6 +170,45 @@ record `SubSecTimeOriginal`, Lightroom honors it, we truncate to whole seconds. 
 at `2019\2019-01-19\DSC_0001.xmp`) and `7.0-c000` / LR Classic 13.4
 (`2023\2023-05-06\DSC_0218.xmp`, which has altitude). GPS encoding identical across all
 three eras.
+
+## Automating this with a Lightroom plugin — considered and declined 2026-08-02
+
+The idea, in full, so it does not have to be re-derived: a Lua plugin using the
+Lightroom Classic SDK that creates a temp catalog, imports one raw of every supported
+type, applies arbitrary GPS to them, exports XMP, and deletes the catalog — leaving
+sidecars to diff. It would turn the hour below into a command.
+
+**Declined. Five reasons, roughly in order of weight.**
+
+1. **It automates the proxy, not the requirement.** The plugin diffs what Lightroom
+   *emits*. What we need is that Lightroom *ingests* what we write, and those come
+   apart: Adobe adding namespaces is near-certain and harmless — it has already done
+   it three times — while dropping support for reading a GPS encoding it wrote for
+   seven years is a different and far rarer act. The two-minute check at the top of
+   this file tests the requirement directly, which is better value than automating
+   the proxy.
+2. **The guard shares a failure mode with the thing it guards.** A plugin is built on
+   the Lightroom SDK, which Adobe also revises. It would break on exactly the events
+   it exists to check, and you would find out at the moment you needed it — having
+   trusted it in the meantime. A guard that fails silently at the point of use is
+   worse than no guard.
+3. **The base rate is zero.** GPS encoding is unchanged across Adobe XMP Core
+   5.6-c140 (2019), 7.0-c000 (2024) and 15.4.1 (2026), while namespaces were added
+   around it. Adobe is demonstrably additive here.
+4. **The failure is bounded and announces itself.** If Lightroom ever stopped reading
+   our sidecars, the next import shows a photo with no location. That is a *missing*
+   tag, which is the acceptable side of this project's own rule — the nightmare is a
+   wrong tag, and this failure mode cannot produce one.
+5. **Feasibility is unverified and may be fatal.** Plugins run inside an already-open
+   catalog; whether the SDK can create or switch one is unconfirmed, and step (a)
+   dies without it. Whether `setRawMetadata` can write GPS *altitude* rather than
+   just latitude and longitude is likewise unconfirmed, as is driving "Save Metadata
+   to File" without a human. Speculative work whose feasibility is unknown, against a
+   risk that has never once materialised, is the wrong trade twice over.
+
+**What would reopen it:** the quick check failing, or two consecutive Lightroom
+releases that each move the GPS encoding — at which point the base rate argument is
+dead and the cost of the manual method starts compounding. Not before.
 
 ## Housekeeping
 
