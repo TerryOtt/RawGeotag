@@ -135,7 +135,7 @@ pass tags only what the earlier one left alone.
   is more than one, or whenever a single one is not UTC:
 
   ```
-  Timezone       2   +00:00 (2 files), +01:00 (2 files)   — two clocks in one run
+  Timezone       2   +00:00 (2 files), +01:00 (2 files) — two clocks in one run
   ```
 
   That line is worth reading. A camera left on the wrong clock displaces a whole

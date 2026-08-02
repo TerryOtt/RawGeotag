@@ -7,6 +7,11 @@ design is settled there — CLI shape, crates, module layout, concurrency model.
 re-litigate decisions it already records; if you think one is wrong, say so explicitly
 rather than quietly diverging.
 
+**"Deep dive review" always means all three of code, code comments, and docs.** Terry
+has had to ask for them separately and should not have to; changing any one of them
+is also reason to check the other two. [`docs/REVIEWING.md`](docs/REVIEWING.md) has
+the table of what staled what.
+
 **Read [`docs/REVIEWING.md`](docs/REVIEWING.md) before anything lands on `main`.**
 Standing order: a branch can be as ugly as it needs to be, `main` has no broken
 windows. There is no PR to hide behind here — the workflow commits straight to

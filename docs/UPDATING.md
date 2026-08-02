@@ -102,8 +102,8 @@ See [`TESTING.md`](TESTING.md) for what each of those checks is for.
 **`cargo test` passing is not enough on a dependency bump.** The unit tests use
 synthetic data; the fixtures use real CR3s and NEFs across three timezone cases, and
 they compare byte-for-byte output. A dep that changed how a GPX timestamp parses or
-how a raw header is read shows up in the aggregate hash and nowhere else. It costs about
-four seconds — see [`FIXTURES.md`](FIXTURES.md).
+how a raw header is read shows up in the aggregate hash and nowhere else, and it costs
+under a second — see [`FIXTURES.md`](FIXTURES.md).
 
 ### Running `verify-fixtures.ps1`
 
@@ -117,7 +117,7 @@ prompt:
 The leading `.\` is required; PowerShell does not search the current directory. No
 arguments are needed on this machine — the script defaults to the sibling directory
 `..\RawGeotag-fixtures` and to this repo's release binary. It writes nothing outside
-the fixture tree, touches no photo library, and takes about four seconds.
+the fixture tree, touches no photo library, and finishes in well under a second.
 
 A healthy run ends with `all fixtures pass` and exit code 0. Each fixture prints what
 it is there to exercise, so the output is also the explanation:
