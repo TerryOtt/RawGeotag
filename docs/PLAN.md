@@ -29,11 +29,11 @@ next session starts at the implementation, beginning with `cargo init`.
 
 It was deliberately scoped to **scaffolding and version control only** — no Rust source, no crates, no `cargo init`.
 
-**Why it existed.** The plan originally lived only at `C:\Users\TDO-XPS15-2024\.claude\plans\i-d-like-to-write-deep-thimble.md` — outside the project, under a machine-generated slug, in no version control. Its *content* was already sufficient to execute from cold; only its location was fragile. This document is now the versioned source of truth.
+**Why it existed.** The plan originally lived only at `~\.claude\plans\i-d-like-to-write-deep-thimble.md` — outside the project, under a machine-generated slug, in no version control. Its *content* was already sufficient to execute from cold; only its location was fragile. This document is now the versioned source of truth.
 
 Actions taken:
 
-1. **`git init`** in `C:\Users\TDO-XPS15-2024\Claude\RawGeotag`, with the initial branch named `main`.
+1. **`git init`** in the repository root, with the initial branch named `main`.
 2. **`docs/PLAN.md`** — this document, copied into the repo. Becomes the versioned source of truth; the `.claude/plans` copy is left alone as a harmless duplicate.
 3. **`.gitignore`** — `/target` and `**/*.rs.bk`. **`Cargo.lock` is deliberately *not* ignored**: this crate is a binary, and Rust convention is to commit the lockfile for binaries so builds are reproducible. (The ignore-the-lockfile advice applies to libraries.)
 4. **`README.md`** — short and human-facing: what the tool does, current status (*planning complete, implementation not started*), prerequisite (install Rust), and a pointer to `docs/PLAN.md`.
@@ -46,7 +46,7 @@ Actions taken:
 
 No remote is configured — this is a local repository unless a GitHub remote is requested separately.
 
-**To resume later:** open Claude Code in `C:\Users\TDO-XPS15-2024\Claude\RawGeotag` and ask it to implement `docs/PLAN.md`. `CLAUDE.md` loads the constraints automatically; the plan supplies everything else. Nothing from this conversation is required.
+**To resume later:** open Claude Code in the repository root and ask it to implement `docs/PLAN.md`. `CLAUDE.md` loads the constraints automatically; the plan supplies everything else. Nothing from this conversation is required.
 
 ---
 
@@ -330,7 +330,7 @@ Exit non-zero if any file errored or the gate fired; zero if everything was eith
 2. **Unit tests** (`track.rs`, no fixtures needed): exact-timestamp hit; midpoint interpolation against hand-computed values; before-first and after-last both skip; antimeridian crossing stays near ±180; missing `ele` on one bracketing point suppresses altitude.
 3. **Unit test** (`xmp.rs`): a known lat/lon renders to the exact expected `DDD,MM.mmk` strings, including a southern/western hemisphere case and a negative altitude.
 4. **Unit test** (`format.rs`): iterate `RawFormat::ALL` and assert every declared extension round-trips through `from_extension`, in mixed case. This test fails if a new variant is added without a table entry, catching the one gap the compiler cannot. A second test pins each format's `read_strategy` to the value verified against real files — the compiler cannot tell that a `Streaming`/`WholeFile` choice is wrong, but every file of that format fails at runtime if it is. **Unit test** (`raw.rs`): `choose_offset` over all four combinations of (EXIF zone, `--utc-offset`) — EXIF wins, CLI fills in, disagreement is reported but EXIF still applied, and **neither present refuses the run**. That last one is the gate rule, and it is the branch every Nikon D3300 file takes.
-5. **End-to-end against real files — every supported format, every time.** Run `C:\Users\TDO-XPS15-2024\Claude\RawGeotag-fixtures\verify.ps1`, which covers all three fixtures and exits non-zero on any failure. **Do not verify only the format you are working on:** `read_strategy` sends CR3 through `Streaming` and NEF through `WholeFile`, different code in `raw.rs`, so one passing says nothing about the other. The fixtures also differ by timezone case (`+00:00`, `+01:00`, none) because a dropped EXIF offset would pass the first and third while misplacing the second by ~50 km — see the fixture README. Separately, confirm sidecars land next to the raw with the right name; pass **two** non-overlapping tracks for one directory and confirm the merged span covers both; then pass two overlapping ones and confirm the run aborts with no sidecars written. **Every new format needs a fixture of its own** — NEF failed in a way no unit test or crate documentation would have revealed.
+5. **End-to-end against real files — every supported format, every time.** Run `.\scripts\verify-fixtures.ps1` from the repo root, which covers all three fixtures and exits non-zero on any failure. **Do not verify only the format you are working on:** `read_strategy` sends CR3 through `Streaming` and NEF through `WholeFile`, different code in `raw.rs`, so one passing says nothing about the other. The fixtures also differ by timezone case (`+00:00`, `+01:00`, none) because a dropped EXIF offset would pass the first and third while misplacing the second by ~50 km — see the fixture README. Separately, confirm sidecars land next to the raw with the right name; pass **two** non-overlapping tracks for one directory and confirm the merged span covers both; then pass two overlapping ones and confirm the run aborts with no sidecars written. **Every new format needs a fixture of its own** — NEF failed in a way no unit test or crate documentation would have revealed.
 6. **Cross-check against ExifTool**, which is installed and is an independent implementation:
    - `exiftool -DateTimeOriginal -OffsetTimeOriginal <file>.cr3` should match what the tool extracted.
    - `exiftool <file>.xmp` should read back the GPS coordinates; compare against the track for that timestamp.

@@ -27,10 +27,13 @@ Lightroom. Hold them aside in a separate directory.
 Sources are the pinned fixtures in `..\RawGeotag-fixtures\` (see `FIXTURES.md`), which
 already pair raws with a covering track.
 
+**Run this from the repo root** — `$src` and `$rg` are relative to it, so it works from
+whichever checkout you are in.
+
 ```powershell
-$src  = "C:\Users\TDO-XPS15-2024\Claude\RawGeotag-fixtures"
+$src  = "..\RawGeotag-fixtures"
 $root = "N:\lr-xmp-compare"
-$rg   = "C:\Users\TDO-XPS15-2024\Claude\RawGeotag\target\release\rawgeotag.exe"
+$rg   = ".\target\release\rawgeotag.exe"
 
 foreach ($p in @("$root\cr3-malta","$root\nef-sedona",
                  "$root\rawgeotag-reference\cr3-malta","$root\rawgeotag-reference\nef-sedona")) {

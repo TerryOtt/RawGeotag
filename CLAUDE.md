@@ -719,10 +719,10 @@ that folder and `C2277B569D9058B6` silently refers to nothing while still appear
 to pass.
 
 Two ways to get a false result: **leftover `.xmp` files** are skipped rather than
-rewritten and change the aggregate (`verify.ps1` clears them for you), and a
+rewritten and change the aggregate (`verify-fixtures.ps1` clears them for you), and a
 **deliberate change to `xmp.rs`'s packet or to the crate version in `x:xmptk`**
-moves all three hashes legitimately — re-derive and update `verify.ps1` and the
-README rather than hunting a regression.
+moves all three hashes legitimately — re-derive and update `verify-fixtures.ps1` and
+the README rather than hunting a regression.
 
 ### The standing NEF fixture on `N:\` — reuse it, do not delete it
 
@@ -746,8 +746,8 @@ which is the whole point.
 | Has a covering track | yes, all three sets | **no** |
 | Right storage | local NVMe, fast and fixed | the NAS, which is what a real import reads |
 
-**For any end-to-end verification, run `C:\...\RawGeotag-fixtures\verify.ps1`** —
-all formats, recorded hashes, not this one.
+**For any end-to-end verification, run `.\scripts\verify-fixtures.ps1`** — all
+formats, recorded hashes, not this one.
 
 Being D3300, every file needs `--utc-offset`; without it the run stops at the gate.
 `--dry-run --utc-offset +0000` is the benchmark invocation.
