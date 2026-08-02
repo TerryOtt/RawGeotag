@@ -70,9 +70,9 @@ available — and gives them a blind spot worth stating plainly:
 The case that established this: `exif_offset` handles both shapes nom-exif can
 return, `Aware` and `Naive`. Every CR3 and NEF comes back `Naive` — JPEG is what
 yields `Aware`, and this tool does not read JPEG. A version of the function that
-ignored its `datetime` argument entirely passed **all 81 unit tests and all three
-fixture aggregates**, measured rather than assumed. The branch was load-bearing for
-the "EXIF wins" rule and held by nothing at all.
+ignored its `datetime` argument entirely passed **the entire suite as it then stood
+and all three fixture aggregates**, measured rather than assumed. The branch was
+load-bearing for the "EXIF wins" rule and held by nothing at all.
 
 A deliberate sweep afterwards found four more, each confirmed by mutating it and
 watching everything pass:
@@ -136,6 +136,7 @@ for free.
 | 2026-07-31 | first full verification | 3,883 CR3s at `-j 1/2/16`: identical console output, 1,489-line warning list, SHA-256 manifest over 2,394 sidecars |
 | 2026-07-31 | gate selection extracted into a function | also reproduced the *pre-extraction* output byte for byte — the stronger result |
 | 2026-08-02 | phase structure, both outcome enums and reporting order reshaped | `cr3-rockies` + `nef-sedona` at `-j 1/2/16`: identical aggregates *and* identical `--verbose` stdout+stderr |
+| 2026-08-02 | end of day, after `skip_breakdown` and the `exif_offset` extraction | same two sets, and the report hashes came back **identical to the pre-refactor run that morning** — a day of restructuring moved no output byte |
 
 That middle run is why the "diff against previous artifacts" rule exists. Extracting
 a function that owns a `sort` is exactly what this check polices — and a careless
