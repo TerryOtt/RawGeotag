@@ -19,7 +19,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, ensure, Context, Result};
+use anyhow::{Context, Result, bail, ensure};
 use chrono::{DateTime, TimeDelta, Utc};
 use gpx::Waypoint;
 use rayon::prelude::*;

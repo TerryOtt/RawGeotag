@@ -29,7 +29,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use chrono::{DateTime, FixedOffset, TimeDelta, Utc};
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -39,7 +39,7 @@ use walkdir::WalkDir;
 
 use crate::format::RawFormat;
 use crate::raw::Capture;
-use crate::track::{format_utc, Fix, GapLimits, Lookup, Track};
+use crate::track::{Fix, GapLimits, Lookup, Track, format_utc};
 
 /// Default worker count, tuned for the common case: raws on a local SSD.
 ///
@@ -972,11 +972,7 @@ fn count(value: usize) -> String {
 /// "3 existing sidecar" and stays that way on purpose: those are category
 /// labels, and a label does not agree with a number the way a sentence does.
 fn plural(value: usize) -> &'static str {
-    if value == 1 {
-        ""
-    } else {
-        "s"
-    }
+    if value == 1 { "" } else { "s" }
 }
 
 /// Format an integer with US thousands separators: `3883` → `3,883`.
@@ -1256,9 +1252,11 @@ mod tests {
         let kind = write_sidecar(&photo, &one_point_track(), settings(true, false));
 
         assert!(matches!(kind, WrittenKind::Tagged { .. }), "{kind:?}");
-        assert!(std::fs::read_to_string(&sidecar)
-            .unwrap()
-            .contains("exif:GPSLatitude"));
+        assert!(
+            std::fs::read_to_string(&sidecar)
+                .unwrap()
+                .contains("exif:GPSLatitude")
+        );
     }
 
     #[test]

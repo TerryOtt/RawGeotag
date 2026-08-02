@@ -115,7 +115,7 @@ pub fn capture_time(
         // rather than as a hard error that would also change the exit code.
         Err(ExifError::ExifNotFound) => return Ok(Capture::NoCaptureTime),
         Err(error) => {
-            return Err(error).with_context(|| format!("reading EXIF from {}", path.display()))
+            return Err(error).with_context(|| format!("reading EXIF from {}", path.display()));
         }
     };
     let exif: Exif = iter.into();

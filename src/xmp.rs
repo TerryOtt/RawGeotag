@@ -170,11 +170,7 @@ fn encode_altitude(ele: f64) -> String {
 
 /// 0 = above sea level, 1 = below.
 fn altitude_ref(ele: f64) -> u8 {
-    if ele < 0.0 {
-        1
-    } else {
-        0
-    }
+    if ele < 0.0 { 1 } else { 0 }
 }
 
 #[cfg(test)]
