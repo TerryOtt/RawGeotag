@@ -41,7 +41,43 @@ no PR. **So the gate is self-review at commit time, and it is the same bar.** "W
 this survive a reviewer" is not softened by there being no reviewer; it is the only
 thing standing in for one.
 
-If contributors ever arrive this becomes an actual PR gate and nothing else changes.
+### What GitHub enforces
+
+Two rulesets on `main`, added 2026-08-02. They are deliberately separate, because
+bypass is per *ruleset*, not per rule — one combined ruleset with the maintainer on
+its bypass list would have exempted him from the force-push block too.
+
+| Ruleset | Rules | Bypass |
+|---|---|---|
+| `main: require pull request` | `pull_request` — 1 approval, **code-owner review required**, stale reviews dismissed on push, last push must be approved | repository admin, always |
+| `main: no force-push or deletion` | `non_fast_forward`, `deletion` | **none — binds the admin as well** |
+
+**"One approval" is not the same as "the maintainer's approval"**, and the difference
+only shows up once there are two collaborators who could rubber-stamp each other. So
+`.github/CODEOWNERS` assigns every path to the maintainer and the ruleset requires a
+code-owner review, which makes his approval specifically mandatory. Two related
+switches are on for the same reason: `dismiss_stale_reviews_on_push` drops approvals
+when new commits land, and `require_last_push_approval` stops someone approving a
+branch and then pushing to it.
+
+A code owner cannot approve their own pull request — which never bites here, because
+the maintainer bypasses this ruleset and commits straight to `main`. A code owner also
+needs write access or the rule silently matches nobody; check that before adding
+anyone to `CODEOWNERS`.
+
+**The first is a no-op today and that is the point.** The repository is public with
+one collaborator, so a non-collaborator already cannot push at all — GitHub refuses
+it and their only route is fork-and-PR. The ruleset exists so that stays true the
+moment anyone is granted write access, rather than depending on nobody having been.
+
+**The second is the one with teeth**, and it protects against the only account that
+can actually damage `main`: the maintainer's. Rewriting or deleting published history
+is now refused by the server rather than by remembering not to — which is the same
+preference for making a mistake impossible that runs through the rest of this project.
+
+Note that "Claude" is not a separate actor to allow-list. Commits are authored and
+pushed as the maintainer, with Claude recorded in a `Co-Authored-By` trailer, so
+GitHub sees one identity and any rule permitting the human permits the assistant.
 
 ## What counts as a broken window here
 

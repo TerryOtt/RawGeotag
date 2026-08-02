@@ -1,0 +1,16 @@
+# Every path in this repository is owned by the maintainer.
+#
+# Paired with `require_code_owner_review` on the "main: require pull request"
+# ruleset, this makes @TerryOtt's approval mandatory on every pull request to
+# main — not merely "one approval from somebody with write access", which is
+# what a bare review count would mean once there is more than one collaborator.
+#
+# Two consequences worth knowing:
+#
+#   - A code owner cannot approve their own pull request. That never bites here,
+#     because the maintainer bypasses the pull-request ruleset entirely and
+#     commits straight to main; see docs/REVIEWING.md.
+#   - A code owner must have write access to the repository, or the rule silently
+#     matches nobody. Check that before adding anyone to this file.
+
+* @TerryOtt
