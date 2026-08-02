@@ -327,6 +327,13 @@ The count column is **width 7**, which is wider than these numbers need: it is
 sized to fit a seven-figure count once thousands separators are in. Widen it
 rather than dropping the separators if it ever overflows.
 
+**`3 existing sidecar` above is not a missed plural.** The prose-shaped lines agree
+with their numbers — `1 raw file`, `1 thread` — via `plural()` in `main.rs`. The skip
+breakdown does not, because those are category *labels*: the reason a photo was skipped
+is "existing sidecar" whether it happened once or a thousand times, and a label does not
+agree with a count the way a sentence does. Both halves are deliberate, so make them
+consistent only by deciding the breakdown is prose, not by patching one line of it.
+
 **The elapsed line aligns its *whole seconds* in that column, not the whole value**,
 which is why its decimal point hangs to the right of it. Formatting the seconds as one
 number — `{:>7.1}` — right-aligns `3.2` as a unit, so the point and tenths eat two
