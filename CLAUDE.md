@@ -61,6 +61,16 @@ it is him.
    and renames it into place, and cleaning up *its own* temp on failure is not what
    this prohibits. The rule is about files that were already there.
 
+   **`--dry-run --force` does not unlock it either — asked and settled 2026-08-02.**
+   The argument is sound on its face: a dry run provably writes nothing, so the
+   combination cannot overwrite anything on `Q:\`. It is refused anyway, and *because*
+   it is sound. The line is worth having precisely because it is unconditional, and a
+   rule with one well-reasoned exception is a rule that gets a second one argued from
+   the same "but this case is provably safe" shape. Rehearse a forced run on a staged
+   copy under `N:\`, which costs nothing and needs no exception. (Terry keeps the
+   combination, and it is documented in the README as the right way to preview
+   `--force` — this constrains the operator, not the tool.)
+
 6. **You never delete or modify a Lightroom-created sidecar, anywhere, ever.**
    Unlike constraint 5 this follows the *file*, not the drive — a copy staged on
    `N:\` is still a Lightroom sidecar, because a "fixed" copy invites being copied
