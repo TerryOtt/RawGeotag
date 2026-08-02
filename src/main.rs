@@ -931,9 +931,16 @@ fn print_summary(summary: &Summary) {
     if skipped > 0 {
         println!("Skipped  {:>7}   {}", count(skipped), reasons.join(", "));
     }
+    // Align the whole seconds, not the whole number. `{:>7.1}` right-aligns "20.3"
+    // as a unit, so the decimal point and tenths consume two columns of the field
+    // and the units digit sits left of every integer above it. Splitting the tenths
+    // off hangs them outside the column, and lets a run over 1,000 s pick up the
+    // separators that a bare `{:.1}` cannot produce.
+    let tenths = (summary.elapsed * 10.0).round() as i64;
     println!(
-        "Elapsed  {:>7.1}s  ({} files/sec, {} threads)",
-        summary.elapsed,
+        "Elapsed  {:>7}.{}s  ({} files/sec, {} threads)",
+        thousands(tenths / 10),
+        tenths % 10,
         thousands(rate.round() as i64),
         summary.threads
     );

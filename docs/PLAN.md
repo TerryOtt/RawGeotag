@@ -317,15 +317,22 @@ Default: **skip and warn**, naming each file. `--force` overwrites wholesale. No
 Always print a tallied summary; collected warnings are the detail lines behind it.
 
 ```
-Scanned      419 .cr3 files
+Scanned      419 raw files
 Tagged       405
 Skipped       14   9 outside track, 3 existing sidecar, 2 no capture time
-Elapsed      3.2s  (131 files/sec, 16 threads)
+Elapsed        3.2s  (131 files/sec, 16 threads)
 ```
 
 The count column is **width 7**, which is wider than these numbers need: it is
 sized to fit a seven-figure count once thousands separators are in. Widen it
 rather than dropping the separators if it ever overflows.
+
+**The elapsed line aligns its *whole seconds* in that column, not the whole value**,
+which is why its decimal point hangs to the right of it. Formatting the seconds as one
+number — `{:>7.1}` — right-aligns `3.2` as a unit, so the point and tenths eat two
+columns and the units digit lands left of every integer above. Splitting the tenths
+off is also what lets a run over 1,000 s carry separators, which a bare `{:.1}` cannot
+produce.
 
 Exit non-zero if any file errored or the gate fired; zero if everything was either tagged or deliberately skipped.
 
