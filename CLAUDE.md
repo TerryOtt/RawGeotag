@@ -748,6 +748,41 @@ performance benefit that does not exist.
   `Get-ChildItem -LiteralPath <dir> -Filter *.ext -Force`, and confirm with
   `Test-Path` before believing any count that suggests files vanished.
 
+### Copy routing — "same chassis" is the *slowest* route, not the fastest
+
+**Measured 2026-08-02 moving the 3,883-file Rockies day (187.5 GB) around, with
+`robocopy /MT:16`:**
+
+| Route | Sustained | What it is |
+|---|---|---|
+| `C:\` → `N:\` | **611 MB/s** | local read, one crossing — **98% of the 5 Gbps link** |
+| `N:\` → `C:\` | 283-522 MB/s | see the variance note below |
+| `Q:\` → `C:\` | 250-495 MB/s | HDD read, one crossing |
+| `Q:\` → `N:\` | **128 MB/s** | **the obvious route, and the worst one** |
+
+**Both shares live on one NAS, and that buys nothing.** The intuition — same chassis,
+so the bytes should never leave it — assumes SMB server-side copy offload
+(`FSCTL_SRV_COPYCHUNK`), and this NAS does not do it for a cross-share copy. Every byte
+comes *down* to this machine and goes back *up*, crossing the same 5 Gbps link twice,
+which is why 128 MB/s is almost exactly half the slower `Q:\`→`C:\` figure.
+
+**So to fill `N:\` from the archive, go through `C:\` — two copies are faster than
+one.** Direct is ~24 min; `Q:\`→`C:\` then `C:\`→`N:\` is ~11-18 min for the same
+bytes. If a local copy already exists, the second leg alone is ~5 min at line rate.
+**The tell that a future NAS does support offload is throughput far above ~625 MB/s**,
+which is impossible if the bytes are really crossing the wire.
+
+**Variance caveat, unexplained and worth respecting.** Two independent pairs showed the
+*second* consecutive 188 GB write to `C:\` running at roughly half the first:
+`Q:\`→`C:\` gave 495 then 250, and `N:\`→`C:\` gave 522 then 283. The suspicion is the
+destination SSD's sustained-write behaviour (pseudo-SLC cache exhausted, then GC),
+since the one leg where `C:\` was *reading* is also the fastest number here. Not
+confirmed. Treat any single copy figure as ±2x unless the drive has been idle.
+
+*(The 522 MB/s read agrees with the NEF sweep below, which measured 517 MB/s off `N:\`
+with `--dry-run` and no writing at all. Two methods, ~1% apart, so ~520 MB/s is the
+real read ceiling off `N:\` — the wire, not the array.)*
+
 ### The standing NEF fixture on `N:\` — reuse it, do not delete it
 
 `N:\rawgeotag-bench\{j1,j2,j4,j8}` — **four disjoint sets of 200 Nikon D3300 NEFs,
@@ -808,6 +843,26 @@ newest-staged sets differed by 1.6%, so neither staging recency nor re-reading p
 these files in cache. 4.3 GB reads over SMB are evidently not retained despite 63.7 GB
 of RAM. That control is what makes the sweep trustworthy; re-run it before believing
 a future sweep.
+
+### The standing CR3 day on `N:\` — `rawgeotag-stage\2022-09-27`
+
+**`N:\rawgeotag-stage\2022-09-27\` — the full Rockies day, 3,883 CR3s (187.5 GB) plus
+`track.gpx`.** Staged 2026-08-02 and **kept deliberately**, as the CR3 counterpart to
+`rawgeotag-bench` above: a cold-read measurement *consumes* its files, so every fresh
+data point costs another 188 GB, and this is what stops that meaning another trip
+across the archive's platters. Restaging a fresh copy to `C:\` is ~6-13 min and touches
+`Q:\` not at all.
+
+Unlike `rawgeotag-bench` it **has a covering track**, so it reports real tagging results
+— 2,394 tagged, 1,489 skipped — and is good for more than timing.
+
+**Validation status, stated precisely because it is not total:** file count and
+aggregate bytes match the `Q:\` original exactly (3,883 files / 201,298,458,738 bytes),
+robocopy reported 0 failed and 0 mismatched, a 9-file hash sample spread across the
+sorted range matched, and two runs over separate copies of it produced the expected
+2,394 sidecars with identical warning lists. **A full per-file hash of all 188 GB has
+not been done.** That is ample for benchmarking; say so rather than claiming
+byte-proof if it ever matters.
 
 **Harness note.** Drive access is gated by Claude Code's directory permissions, not
 just the OS. A fresh session or a subagent fork may be limited to the repo directory
