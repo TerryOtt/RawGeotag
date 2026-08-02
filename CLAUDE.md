@@ -323,7 +323,8 @@ which is what separates this from the hyperscale case where the instinct is righ
 
 Implemented. Builds clean, the unit test suite passes, `cargo clippy --all-targets
 -- -D warnings` is clean. **`--all-targets` is the form that matters** — without it
-clippy skips test code, which is over 40% of this crate's lines. (No count here on purpose —
+clippy does not lint test code at all, and there is more of that here than there is
+implementation. (No count here on purpose —
 it went stale three times; `cargo test` is the authoritative answer.) Toolchain on
 this machine: Rust 1.97.1 MSVC, with the VS Build Tools C++ workload installed.
 

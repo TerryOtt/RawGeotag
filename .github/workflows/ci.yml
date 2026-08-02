@@ -52,8 +52,8 @@ jobs:
       - name: cargo fmt --check
         run: cargo fmt --all -- --check
 
-      # --all-targets is the point: without it clippy never sees test code, which is
-      # over 40% of this crate.
+      # --all-targets is the point: without it clippy does not lint test code at all,
+      # and there is more of that here than there is implementation.
       - name: cargo clippy
         run: cargo clippy --all-targets -- -D warnings
 

@@ -104,8 +104,9 @@ cargo build --release
 .\scripts\verify-fixtures.ps1
 ```
 
-**`--all-targets` is not optional** — without it clippy skips test code, which is
-over 40% of this crate's lines. The release build comes before the harness, which
+**`--all-targets` is not optional** — without it clippy does not lint test code at
+all, and there is more of that here than there is implementation. The release build
+comes before the harness, which
 runs `target\release\rawgeotag.exe` and throws if it is missing.
 
 ### The fixtures — every format, every time

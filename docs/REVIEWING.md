@@ -49,7 +49,7 @@ its bypass list would have exempted him from the force-push block too.
 
 | Ruleset | Rules | Bypass |
 |---|---|---|
-| `main: require pull request` | `pull_request` — 1 approval, **code-owner review required**, **squash the only permitted merge**, stale reviews dismissed on push, last push must be approved | repository admin, always |
+| `main: require pull request` | `pull_request` — 1 approval, **code-owner review required**, **squash the only permitted merge**, stale reviews dismissed on push, last push must be approved; plus `required_status_checks` on the CI job, strict | repository admin, always |
 | `main: no force-push or deletion` | `non_fast_forward`, `deletion` | **none — binds the admin as well** |
 
 **"One approval" is not the same as "the maintainer's approval"**, and the difference
@@ -224,6 +224,12 @@ Two layers, and the second is not redundant with the first:
 |---|---|---|---|
 | `.githooks/pre-commit` | your machine, before the commit exists | fmt, clippy, test | `--no-verify`, and only present if the clone was wired up |
 | `.github/workflows/ci.yml` | GitHub, on push to `main` and on every PR | the same three | no |
+
+CI is also a **required status check** on the pull-request ruleset, in strict mode —
+so a PR cannot merge while the checks are red, and cannot merge on a stale base
+either: strict means the branch must be up to date with `main` first. That is what
+turns CI from a notification into a gate. It does not apply to the maintainer's
+direct pushes, which bypass the ruleset; there CI reports after the fact.
 
 The hook is the layer that saves you time, because it catches a problem before it is
 in the history. CI is the layer that cannot be talked out of it, and the only one
