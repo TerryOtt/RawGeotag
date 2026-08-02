@@ -16,109 +16,35 @@ the only one a conflict is resolved in favor of. See
 [XMP sidecars](#xmp-sidecars-and-who-they-are-written-for) for what that does and does
 not promise.
 
-**The first goal is accuracy, and everything defers to it: a geotag off by more than
-5 m is worse than no geotag at all.** A missing tag is visibly missing, and you know to
-go and fix it. A wrong one looks authoritative and quietly corrupts the photo's own
-record of where it was taken. So wherever coverage trades against accuracy this tool
-takes accuracy — it will not clamp, extrapolate, or bridge a hole in the track to raise
-the number of photos it can claim to have tagged.
+**Accuracy comes before coverage: a geotag off by more than 5 m is worse than no
+geotag at all.** A missing tag is visibly missing and you know to go and fix it; a
+wrong one looks authoritative and quietly corrupts the photo's own record of where it
+was taken. So this tool will not clamp, extrapolate, or bridge a hole in the track to
+raise the number of photos it can claim to have tagged. [Do no harm](#do-no-harm) is
+the other half of that, and shapes every default.
 
-## Do no harm
+## Quick start
 
-**The second goal, and the one that shapes every default.** A geotagging pass runs
-unattended over thousands of irreplaceable files, so it is designed to be incapable of
-quietly costing you something.
-
-**Raw files are never modified.** All output goes to sidecars, so the whole operation is
-reversible by deleting the generated `.xmp` files.
-
-**Photos that already have a sidecar are skipped, with a warning.** Never merged, never
-partially updated. This matters more than it sounds, because a sidecar is not just a
-geotag — once Lightroom has written one it holds develop settings, keywords, ratings,
-labels and crop data, **none of which exist anywhere else.** They are not derived from
-the raw and cannot be regenerated from it. A missing geotag is an afternoon; a lost
-develop history is years.
-
-That is also why the intended order is **geotag first, import second**: run this before
-Lightroom has written anything and there is simply nothing of Lightroom's to collide
-with.
-
-### About `--force`
-
-`--force` overwrites existing sidecars **wholesale** — it does not merge, and whatever
-was in the file is gone. It will not be softened with a confirmation prompt or a
-heuristic about whose file it is; a destructive flag that sometimes declines to be
-destructive is worse than one that is honest about it. If you genuinely mean it — you
-wrote the sidecars, you know what is in them, you want them replaced — it does exactly
-what you asked.
-
-**Be clear-eyed about what reaching for it usually means, though.** Pointing `--force`
-at a real photo library is the shape of a bad day: the failure mode is silent,
-immediate and unrecoverable, and there is no undo. The common reason for wanting it —
-re-running a pass to get different results — is better served by **copying the photos
-to a temp directory and working there.** Nothing about the output depends on where the
-raws live, so a scratch copy costs you a copy and nothing else.
-
-**Rehearse it: `--dry-run --force` is the preview, not a contradiction.** The two
-flags answer different questions. `--force` decides which photos are *eligible* to be
-written; `--dry-run` decides whether anything is written at all. So they compose:
-
-| | reports | writes |
-|---|---|---|
-| `--dry-run` | existing sidecars as *skipped* — what a default run would do | nothing |
-| `--dry-run --force` | those same files as *tagged* — what a forced run would do | nothing |
-
-A plain `--dry-run` over a folder that already has sidecars tells you nothing about
-what `--force` would touch, because it reports them all as skips. Adding `--force`
-makes the same dry run name exactly the files that would be overwritten, and still
-writes nothing. `rsync --dry-run --delete` exists for the same reason: the more
-destructive the operation, the more it deserves a rehearsal.
-
-## Status
-
-**Implemented and building.** The unit test suite passes and `cargo clippy
---all-targets -- -D warnings` is clean; run `cargo test` for the current tally.
-
-Verified against real shoots and their GPX tracks, on two camera bodies:
-
-- **1,024 CR3s** (Canon EOS R5) — 1,002 tagged, 22 correctly refused as falling in
-  track gaps. Interpolated positions agree with hand-computed values from the raw
-  track points to within the coordinate encoding's resolution (~0.2 m).
-- **3,883 CR3s, 188 GB** — 2,394 tagged, 1,489 refused (772 across `<trkseg>` breaks,
-  the rest in 5-to-60-minute dropouts). This body had its clock on `+01:00`, which
-  exercises the EXIF timezone path that a `+00:00` camera leaves as a no-op; spot
-  checks match the raw GPX exactly.
-- **NEFs** (Nikon D3300, Sedona 2019) — 30 of 30 tagged against the day's track.
-  This body writes no EXIF timezone, so it also confirms the refusal path: without
-  `--utc-offset` the run aborts having written nothing. An interpolated position
-  recomputed by hand from the raw GPX agreed to **under 5 cm**, and the altitude
-  (1,323 m) is right for Sedona.
-
-Output is deterministic: the same input at `--jobs 1`, `2` and `16` produces
-byte-identical sidecars and an identical warning list. ExifTool is used throughout
-as an independent oracle to read the sidecars back and validate them.
-
-[`docs/TESTING.md`](docs/TESTING.md) is the testing standard — what gets run, and
-the rule that decides whether a test is worth having. The short version is that a
-test has to be shown capable of failing before it counts, which is stricter than it
-sounds and has caught more than one test that could not.
-
-## Build
-
-Requires Rust (via <https://rustup.rs>) and, on Windows, the MSVC toolchain from
-the Visual Studio Build Tools "Desktop development with C++" workload.
+Requires Rust (via <https://rustup.rs>) and, on Windows, the MSVC toolchain from the
+Visual Studio Build Tools "Desktop development with C++" workload.
 
 ```
 cargo build --release
-cargo test
+./target/release/rawgeotag ./shoot cr3 ./track.gpx
 ```
 
-The binary lands at `target/release/rawgeotag` (`rawgeotag.exe` on Windows).
+That reads every `.cr3` under `./shoot`, matches each photo's capture time against the
+track, and writes `IMG_1234.xmp` next to `IMG_1234.CR3`. The binary lands at
+`target/release/rawgeotag` — `rawgeotag.exe` on Windows.
 
-Dependencies are refreshed deliberately rather than continuously — the intended cadence
-is once before each trip, so anything surprising surfaces at home rather than on the
-road. [`docs/UPDATING.md`](docs/UPDATING.md) has the process, including the `0.x` version
-ceiling that makes a clean `cargo update` a poor indicator of being current.
+Three things to expect from that first run:
+
+- **Raw files are never touched.** Everything goes to sidecars, so deleting the
+  generated `.xmp` files undoes the whole operation.
+- **Some photos will be skipped, and that is the tool working.** Anything the track
+  cannot actually place is reported with the reason rather than guessed at.
+- **Shooting Nikon?** Most Nikon bodies record no timezone, so a NEF run needs
+  `--utc-offset` or it will refuse outright. See [Usage](#usage).
 
 ## Usage
 
@@ -141,12 +67,6 @@ rawgeotag <DIR> <EXT> <GPX>... [OPTIONS]
 
 `rawgeotag --help` is the authoritative list; this block is hand-maintained and
 omits clap's automatic `-h` and `-V`.
-
-Example:
-
-```
-rawgeotag ./shoot cr3 ./track.gpx --utc-offset -0700
-```
 
 **Canon CR3 and Nikon NEF are supported.** They differ in one way worth knowing
 before a NEF run: many Nikon bodies write no EXIF timezone at all, so every file
@@ -206,6 +126,57 @@ pass tags only what the earlier one left alone.
   there — read [Do no harm](#do-no-harm) before using it.
 - **Exit code** is non-zero if any file errored or the run was gated; deliberate
   skips are still a clean exit.
+
+## Do no harm
+
+**The half of the accuracy goal that shapes every default.** A geotagging pass runs
+unattended over thousands of irreplaceable files, so it is designed to be incapable of
+quietly costing you something.
+
+**Raw files are never modified.** All output goes to sidecars, so the whole operation is
+reversible by deleting the generated `.xmp` files.
+
+**Photos that already have a sidecar are skipped, with a warning.** Never merged, never
+partially updated. This matters more than it sounds, because a sidecar is not just a
+geotag — once Lightroom has written one it holds develop settings, keywords, ratings,
+labels and crop data, **none of which exist anywhere else.** They are not derived from
+the raw and cannot be regenerated from it. A missing geotag is an afternoon; a lost
+develop history is years.
+
+That is also why the intended order is **geotag first, import second**: run this before
+Lightroom has written anything and there is simply nothing of Lightroom's to collide
+with.
+
+### About `--force`
+
+`--force` overwrites existing sidecars **wholesale** — it does not merge, and whatever
+was in the file is gone. It will not be softened with a confirmation prompt or a
+heuristic about whose file it is; a destructive flag that sometimes declines to be
+destructive is worse than one that is honest about it. If you genuinely mean it — you
+wrote the sidecars, you know what is in them, you want them replaced — it does exactly
+what you asked.
+
+**Be clear-eyed about what reaching for it usually means, though.** Pointing `--force`
+at a real photo library is the shape of a bad day: the failure mode is silent,
+immediate and unrecoverable, and there is no undo. The common reason for wanting it —
+re-running a pass to get different results — is better served by **copying the photos
+to a temp directory and working there.** Nothing about the output depends on where the
+raws live, so a scratch copy costs you a copy and nothing else.
+
+**Rehearse it: `--dry-run --force` is the preview, not a contradiction.** The two
+flags answer different questions. `--force` decides which photos are *eligible* to be
+written; `--dry-run` decides whether anything is written at all. So they compose:
+
+| | reports | writes |
+|---|---|---|
+| `--dry-run` | existing sidecars as *skipped* — what a default run would do | nothing |
+| `--dry-run --force` | those same files as *tagged* — what a forced run would do | nothing |
+
+A plain `--dry-run` over a folder that already has sidecars tells you nothing about
+what `--force` would touch, because it reports them all as skips. Adding `--force`
+makes the same dry run name exactly the files that would be overwritten, and still
+writes nothing. `rsync --dry-run --delete` exists for the same reason: the more
+destructive the operation, the more it deserves a rehearsal.
 
 ## XMP sidecars, and who they are written for
 
@@ -318,6 +289,40 @@ writes, that set the wall clock.
 *Everything above is a summary.* `CLAUDE.md`'s *Measured behavior* section carries
 the full record, including the methodology behind each figure; the two are corrected
 together.
+
+## Status and how it is verified
+
+**Implemented and building.** Run `cargo test` for the current tally; `cargo clippy
+--all-targets -- -D warnings` is clean.
+
+Verified against real shoots and their GPX tracks, on two camera bodies:
+
+- **1,024 CR3s** (Canon EOS R5) — 1,002 tagged, 22 correctly refused as falling in
+  track gaps. Interpolated positions agree with hand-computed values from the raw
+  track points to within the coordinate encoding's resolution (~0.2 m).
+- **3,883 CR3s, 188 GB** — 2,394 tagged, 1,489 refused (772 across `<trkseg>` breaks,
+  the rest in 5-to-60-minute dropouts). This body had its clock on `+01:00`, which
+  exercises the EXIF timezone path that a `+00:00` camera leaves as a no-op; spot
+  checks match the raw GPX exactly.
+- **NEFs** (Nikon D3300, Sedona 2019) — 30 of 30 tagged against the day's track.
+  This body writes no EXIF timezone, so it also confirms the refusal path: without
+  `--utc-offset` the run aborts having written nothing. An interpolated position
+  recomputed by hand from the raw GPX agreed to **under 5 cm**, and the altitude
+  (1,323 m) is right for Sedona.
+
+Output is deterministic: the same input at `--jobs 1`, `2` and `16` produces
+byte-identical sidecars and an identical warning list. ExifTool is used throughout
+as an independent oracle to read the sidecars back and validate them.
+
+[`docs/TESTING.md`](docs/TESTING.md) is the testing standard — what gets run, and
+the rule that decides whether a test is worth having. The short version is that a
+test has to be shown capable of failing before it counts, which is stricter than it
+sounds and has caught more than one test that could not.
+
+Dependencies are refreshed deliberately rather than continuously — once before each
+trip, so anything surprising surfaces at home rather than on the road.
+[`docs/UPDATING.md`](docs/UPDATING.md) has the process, including the `0.x` version
+ceiling that makes a clean `cargo update` a poor indicator of being current.
 
 ## Design constraints
 

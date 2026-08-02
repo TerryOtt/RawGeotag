@@ -14,49 +14,6 @@ Three constraints shape the design:
 
 CR3 shipped first and **Nikon NEF has since been added**, which is what put the format seam under real load; see Format extensibility for what a second format actually cost. The remaining TIFF-based raws (ARW, DNG, ORF, PEF, RW2) are still out of reach, for the reason recorded there.
 
-## Prerequisite
-
-**Satisfied — this section is retained only so the requirement is on record.** When the plan was written Rust was absent from this machine; it has since been installed and the project builds and ships from it.
-
-Verified present (2026-07-31): `rustc` / `cargo` **1.97.1**, toolchain `stable-x86_64-pc-windows-msvc`, with the Visual Studio Build Tools "Desktop development with C++" workload that the MSVC target links against. ExifTool **12.76** is also installed and is useful as an independent oracle when verifying output — see Verification — but it is **not** a runtime dependency and appears nowhere in shipped code.
-
----
-
-## Step 0 — persist this plan — ✅ COMPLETE (2026-07-28)
-
-**This step is done; it is retained as a record. Nothing here needs redoing.** The
-next session starts at the implementation, beginning with `cargo init`.
-
-It was deliberately scoped to **scaffolding and version control only** — no Rust source, no crates, no `cargo init`.
-
-**Why it existed.** The plan originally lived only at `~\.claude\plans\i-d-like-to-write-deep-thimble.md` — outside the project, under a machine-generated slug, in no version control. Its *content* was already sufficient to execute from cold; only its location was fragile. This document is now the versioned source of truth.
-
-Actions taken:
-
-1. **`git init`** in the repository root, with the initial branch named `main`.
-2. **`docs/PLAN.md`** — this document, copied into the repo. Becomes the versioned source of truth; the `.claude/plans` copy is left alone as a harmless duplicate.
-3. **`.gitignore`** — `/target` and `**/*.rs.bk`. **`Cargo.lock` is deliberately *not* ignored**: this crate is a binary, and Rust convention is to commit the lockfile for binaries so builds are reproducible. (The ignore-the-lockfile advice applies to libraries.)
-4. **`README.md`** — short and human-facing: what the tool does, current status (*planning complete, implementation not started*), prerequisite (install Rust), and a pointer to `docs/PLAN.md`.
-5. **`CLAUDE.md`** — loaded automatically into context at the start of every Claude Code session in this directory. This is what lets a future session resume without re-litigating settled decisions. Keep it brief and state the binding constraints:
-   - Pure Rust only — no ExifTool, no C-library bindings, ever.
-   - Optimize for wall-clock time; the work is parallel by design.
-   - Readable and maintainable over clever; no surprises for an experienced Rust reviewer.
-   - Design decisions are settled in `docs/PLAN.md` — read it before proposing changes.
-6. **Initial commit** on `main`.
-
-> **Item 5's "keep it brief" did not survive, and that was a decision rather than a
-> drift** (noted 2026-08-02, because instruction and artifact had been disagreeing
-> silently). CLAUDE.md became the record of what real data did to the design — the CR3
-> timezone trap, NEF's `read_strategy`, the measured `-j` behavior — which is the one
-> thing this plan cannot be, and each entry cost a session to learn. **The bar for
-> adding to it is "would a session otherwise repeat this mistake", not "is this true".**
-
-No remote is configured — this is a local repository unless a GitHub remote is requested separately.
-
-**To resume later:** open Claude Code in the repository root and ask it to implement `docs/PLAN.md`. `CLAUDE.md` loads the constraints automatically; the plan supplies everything else. Nothing from this conversation is required.
-
----
-
 ## CLI
 
 ```
@@ -383,3 +340,54 @@ The unit tests each module must keep covered are not listed there either, becaus
 `cargo test` is the authoritative inventory and a hand-written list of them went stale
 three times. What `TESTING.md` records instead is the *rule* that decides whether a
 test is worth having.
+
+---
+
+# Appendix — completed groundwork
+
+*Retained as a record. Nothing here needs redoing, and nothing here is design — it
+opened this document from the day it was written, pushing the design itself below the
+fold for every reader who came looking for it.*
+
+## Prerequisite
+
+**Satisfied — this section is retained only so the requirement is on record.** When the plan was written Rust was absent from this machine; it has since been installed and the project builds and ships from it.
+
+Verified present (2026-07-31): `rustc` / `cargo` **1.97.1**, toolchain `stable-x86_64-pc-windows-msvc`, with the Visual Studio Build Tools "Desktop development with C++" workload that the MSVC target links against. ExifTool **12.76** is also installed and is useful as an independent oracle when verifying output — see Verification — but it is **not** a runtime dependency and appears nowhere in shipped code.
+
+---
+
+## Step 0 — persist this plan — ✅ COMPLETE (2026-07-28)
+
+**This step is done; it is retained as a record. Nothing here needs redoing.** The
+next session starts at the implementation, beginning with `cargo init`.
+
+It was deliberately scoped to **scaffolding and version control only** — no Rust source, no crates, no `cargo init`.
+
+**Why it existed.** The plan originally lived only at `~\.claude\plans\i-d-like-to-write-deep-thimble.md` — outside the project, under a machine-generated slug, in no version control. Its *content* was already sufficient to execute from cold; only its location was fragile. This document is now the versioned source of truth.
+
+Actions taken:
+
+1. **`git init`** in the repository root, with the initial branch named `main`.
+2. **`docs/PLAN.md`** — this document, copied into the repo. Becomes the versioned source of truth; the `.claude/plans` copy is left alone as a harmless duplicate.
+3. **`.gitignore`** — `/target` and `**/*.rs.bk`. **`Cargo.lock` is deliberately *not* ignored**: this crate is a binary, and Rust convention is to commit the lockfile for binaries so builds are reproducible. (The ignore-the-lockfile advice applies to libraries.)
+4. **`README.md`** — short and human-facing: what the tool does, current status (*planning complete, implementation not started*), prerequisite (install Rust), and a pointer to `docs/PLAN.md`.
+5. **`CLAUDE.md`** — loaded automatically into context at the start of every Claude Code session in this directory. This is what lets a future session resume without re-litigating settled decisions. Keep it brief and state the binding constraints:
+   - Pure Rust only — no ExifTool, no C-library bindings, ever.
+   - Optimize for wall-clock time; the work is parallel by design.
+   - Readable and maintainable over clever; no surprises for an experienced Rust reviewer.
+   - Design decisions are settled in `docs/PLAN.md` — read it before proposing changes.
+6. **Initial commit** on `main`.
+
+> **Item 5's "keep it brief" did not survive, and that was a decision rather than a
+> drift** (noted 2026-08-02, because instruction and artifact had been disagreeing
+> silently). CLAUDE.md became the record of what real data did to the design — the CR3
+> timezone trap, NEF's `read_strategy`, the measured `-j` behavior — which is the one
+> thing this plan cannot be, and each entry cost a session to learn. **The bar for
+> adding to it is "would a session otherwise repeat this mistake", not "is this true".**
+
+No remote is configured — this is a local repository unless a GitHub remote is requested separately.
+
+**To resume later:** open Claude Code in the repository root and ask it to implement `docs/PLAN.md`. `CLAUDE.md` loads the constraints automatically; the plan supplies everything else. Nothing from this conversation is required.
+
+---
