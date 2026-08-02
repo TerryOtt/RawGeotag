@@ -13,7 +13,7 @@
     every Rockies photo by ~50 km, which would still tag and never warn.
 
     This script and the manifests live in the repo; the raws do not, since they are
-    3.7 GB. See docs/FIXTURES.md for what the fixture holds and how to rebuild it.
+    222 MB. See docs/FIXTURES.md for what the fixture holds and how to rebuild it.
 
 .PARAMETER FixtureRoot
     Directory holding cr3-malta/, cr3-rockies/, nef-sedona/ and gpx/.
@@ -22,9 +22,9 @@
     Path to rawgeotag.exe. Defaults to this repo's release build.
 
 .PARAMETER CheckSources
-    Also verify every source raw against its recorded SHA-256. Slow (reads 3.7 GB)
-    and rarely needed -- use it when a hash mismatch might mean the fixture drifted
-    rather than the code changing.
+    Also verify every source raw against its recorded SHA-256. Cheap now that the
+    sets are two files each -- reach for it when a hash mismatch might mean the
+    fixture drifted rather than the code changing.
 
 .EXAMPLE
     .\scripts\verify-fixtures.ps1
@@ -43,15 +43,21 @@ $ErrorActionPreference = 'Stop'
 
 # Expected aggregates. A deliberate change to the XMP packet or to the crate
 # version in x:xmptk moves these legitimately -- re-derive, do not hunt a bug.
+#
+# Two files per set, not forty. The old counts were inherited from "the first N by
+# name" and bought nothing: within a set the files are the same camera on the same
+# shoot, so file forty exercises no code that file one does not. What the three sets
+# do differ in -- read strategy and timezone case -- is preserved exactly, which is
+# where all the coverage was. See "Bring your own raws" in docs/FIXTURES.md.
 $Fixtures = @(
     @{ Name = 'cr3-malta';   Ext = 'cr3'; Gpx = 'malta-2025-09-18.gpx';   Args = @();
-       Count = 40; Hash = 'C2277B569D9058B6'
+       Count = 2; Hash = 'CF2D1DA68FA359AA'
        Exercises = 'Streaming read path; EXIF offset +00:00 (present, no-op)' }
     @{ Name = 'cr3-rockies'; Ext = 'cr3'; Gpx = 'rockies-2022-09-27.gpx'; Args = @();
-       Count = 30; Hash = '0D969878B1B7081C'
+       Count = 2; Hash = '047EF9B17BE64472'
        Exercises = 'Streaming read path; EXIF offset +01:00 (real conversion)' }
     @{ Name = 'nef-sedona';  Ext = 'nef'; Gpx = 'sedona-2019-01-19.gpx';  Args = @('--utc-offset', '+0000');
-       Count = 30; Hash = 'E7E243F581F1CA93'
+       Count = 2; Hash = 'F858DA7AA022AF2B'
        Exercises = 'WholeFile read path; no EXIF offset, so --utc-offset is required' }
 )
 

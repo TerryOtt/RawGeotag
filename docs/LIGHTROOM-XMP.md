@@ -118,11 +118,13 @@ foreach ($p in @("$root\cr3-malta","$root\nef-sedona",
     New-Item -ItemType Directory -Force -Path $p | Out-Null
 }
 
-# Spread the CR3 selection: consecutive frames are often one stationary position.
-$all = Get-ChildItem -LiteralPath "$src\cr3-malta" -Filter *.CR3 -Force | Sort-Object Name
-foreach ($i in @(0,1,2,3,4,14,23,31,39)) { Copy-Item $all[$i].FullName -Destination "$root\cr3-malta" }
-Get-ChildItem -LiteralPath "$src\nef-sedona" -Filter *.NEF -Force |
-    Select-Object -First 5 | Copy-Item -Destination "$root\nef-sedona"
+# Everything in each set. The fixture is two photos per set now, so there is nothing
+# to select between -- an earlier version of this script indexed @(0,1,2,3,4,14,23,
+# 31,39) into a forty-file Malta set to spread the sample, since consecutive frames
+# are often one stationary position. If you want a wider positional spread than two
+# frames gives, pull extra photos straight from Q:\ rather than growing the fixture.
+Get-ChildItem -LiteralPath "$src\cr3-malta"  -Filter *.CR3 -Force | Copy-Item -Destination "$root\cr3-malta"
+Get-ChildItem -LiteralPath "$src\nef-sedona" -Filter *.NEF -Force | Copy-Item -Destination "$root\nef-sedona"
 
 Copy-Item "$src\gpx\malta-2025-09-18.gpx"  "$root\cr3-malta"
 Copy-Item "$src\gpx\sedona-2019-01-19.gpx" "$root\nef-sedona"

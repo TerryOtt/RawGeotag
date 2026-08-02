@@ -100,8 +100,8 @@ The release build comes first because `verify-fixtures.ps1` runs
 See [`TESTING.md`](TESTING.md) for what each of those checks is for.
 
 **`cargo test` passing is not enough on a dependency bump.** The unit tests use
-synthetic data; the fixtures use 100 real CR3s and NEFs across three timezone cases,
-and they compare byte-for-byte output. A dep that changed how a GPX timestamp parses or
+synthetic data; the fixtures use real CR3s and NEFs across three timezone cases, and
+they compare byte-for-byte output. A dep that changed how a GPX timestamp parses or
 how a raw header is read shows up in the aggregate hash and nowhere else. It costs about
 four seconds — see [`FIXTURES.md`](FIXTURES.md).
 
@@ -125,7 +125,7 @@ it is there to exercise, so the output is also the explanation:
 ```
 === cr3-rockies ===
     exercises: Streaming read path; EXIF offset +01:00 (real conversion)
-    count    : 30 sidecars  OK
+    count    : 2 sidecars  OK
     aggregate: <16 hex digits>  OK
 ```
 
@@ -138,7 +138,7 @@ so it chains: `cargo test && .\scripts\verify-fixtures.ps1`.
 
 Three things worth knowing before the first run:
 
-- **The 3.7 GB of raw photos are not in git** — only the script and its per-file
+- **The raw photos are not in git** — only the script and its per-file
   manifests are. The script expects the tree as a **sibling of the checkout**, so on
   this machine it needs no arguments; from a checkout without one, point at a tree
   that exists:
@@ -153,10 +153,9 @@ Three things worth knowing before the first run:
   That is required — a leftover sidecar is *skipped* rather than rewritten and would
   silently change the aggregate — and it is confined to the three fixture folders. It is
   also the reason the fixtures live on local `C:\` and not in the archive.
-- **`-CheckSources` answers a different question.** It re-hashes all 3.7 GB of raws
-  against the recorded manifests, which distinguishes *the fixture drifted* from *the
-  code changed*. Slow and rarely needed — reach for it only when a hash mismatch is
-  otherwise unexplainable.
+- **`-CheckSources` answers a different question.** It re-hashes every raw against
+  the recorded manifests, which distinguishes *the fixture drifted* from *the code
+  changed*. Cheap now that the sets are two files each.
 
 Execution policy is `RemoteSigned` here, which runs local scripts without complaint. If
 you ever get the fixtures from a downloaded zip rather than a copy, Windows marks the

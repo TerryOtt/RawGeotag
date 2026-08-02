@@ -13,7 +13,7 @@ serve — including the blind spot they structurally cannot cover.
 | Harness | `scripts/verify-fixtures.ps1` | **yes** |
 | Source manifests | `scripts/fixture-manifests/*.sha256` | **yes** |
 | Expected aggregates | in the harness, next to each fixture | **yes** |
-| The raws themselves | `..\RawGeotag-fixtures\` (sibling of the repo) | **no** — 3.7 GB |
+| The raws themselves | `..\RawGeotag-fixtures\` (sibling of the repo) | **no** — 222 MB, and personal photographs |
 
 Only the photographs stay out of version control. The script and the hashes are
 project code: losing them would mean re-deriving every expected value, and a value
@@ -33,9 +33,9 @@ below.** The short version is that you cannot have it, and do not need it.
 
 | Directory | Files | Size | Exercises |
 |---|---|---|---|
-| `cr3-malta/` | 40 CR3, `_DOO0001`–`_DOO0040` | 1.74 GB | `Streaming`; EXIF offset `+00:00` — present, but a no-op |
-| `cr3-rockies/` | 30 CR3, `_50A0001`–`_50A0030` | 1.30 GB | `Streaming`; EXIF offset **`+01:00` — real conversion** |
-| `nef-sedona/` | 30 NEF, `DSC_0220`–`DSC_0249` | 0.63 GB | `WholeFile`; **no** EXIF offset, so `--utc-offset` is mandatory |
+| `cr3-malta/` | 2 CR3, `_DOO0001`–`_DOO0002` | 87 MB | `Streaming`; EXIF offset `+00:00` — present, but a no-op |
+| `cr3-rockies/` | 2 CR3, `_50A0001`–`_50A0002` | 88 MB | `Streaming`; EXIF offset **`+01:00` — real conversion** |
+| `nef-sedona/` | 2 NEF, `DSC_0220`–`DSC_0221` | 43 MB | `WholeFile`; **no** EXIF offset, so `--utc-offset` is mandatory |
 | `gpx/` | 3 tracks | 1.5 MB | the tracks covering those three shoots |
 
 **Verify every format, every time.** `RawFormat::read_strategy` sends CR3 through
@@ -57,11 +57,11 @@ fixture that catches it.
 
 | Fixture | Tagged | Aggregate |
 |---|---|---|
-| `cr3-malta` | 40 / 40 | `C2277B569D9058B6` |
-| `cr3-rockies` | 30 / 30 | `0D969878B1B7081C` |
-| `nef-sedona` | 30 / 30 | `E7E243F581F1CA93` |
+| `cr3-malta` | 2 / 2 | `CF2D1DA68FA359AA` |
+| `cr3-rockies` | 2 / 2 | `047EF9B17BE64472` |
+| `nef-sedona` | 2 / 2 | `F858DA7AA022AF2B` |
 
-`nef-sedona` must additionally **refuse all 30 and write nothing** when
+`nef-sedona` must additionally **refuse both and write nothing** when
 `--utc-offset` is omitted — the D3300 records no EXIF timezone, so this set
 exercises the gate for free.
 
@@ -79,11 +79,17 @@ fixture, so only hand-runs are exposed. And a deliberate change to `xmp.rs`'s pa
 or to the crate version in `x:xmptk`, moves all three hashes legitimately: re-derive
 and update `verify-fixtures.ps1` and this file rather than hunting a regression.
 
-**All three aggregates have held across every refactor so far** — the `tempfile`
-change, the chrono refactor, `--jobs 1/2/8/16`, and the 2026-08-02 readability pass
-that reshaped the phase structure, both outcome enums and the reporting order at
-once. That last one is the case these hashes exist for: it touched everything the
-determinism check polices and moved no output.
+**No code change has ever moved these** — not the `tempfile` change, the chrono
+refactor, `--jobs 1/2/8/16`, nor the 2026-08-02 readability pass that reshaped the
+phase structure, both outcome enums and the reporting order at once. That last one is
+the case these hashes exist for: it touched everything the determinism check polices
+and moved no output.
+
+**The values above were re-derived on 2026-08-02 all the same**, when the sets were
+trimmed from 40/30/30 files to two apiece. That is the *fixture* changing, not the
+code — an aggregate is a hash over however many sidecars the set contains, so fewer
+files necessarily means a different number. It is the second of the two legitimate
+moves listed above, and the reason the list is there.
 
 ## Bring your own raws
 
@@ -94,7 +100,7 @@ it is not a barrier to contributing.
 one is a SHA-256 over the sidecars produced from *those exact bytes* with *that exact
 track*. Different raws produce different sidecars produce a different aggregate. A
 contributor working from their own photographs must derive their own numbers no matter
-how the files are distributed, so shipping 3.7 GB would buy only the ability to
+how the files are distributed, so shipping them would buy only the ability to
 reproduce one person's specific figures.
 
 **Most of the safety net is already in git.** The unit suite pins the emitted packet
@@ -107,7 +113,7 @@ read strategies, and real EXIF from real bodies.
 
 Not many files. The count here is inherited from "the first N by name", not from any
 requirement — **one photo per case would exercise every distinct path**, which is
-about 110 MB rather than 3.7 GB:
+about 220 MB rather than the 3.7 GB this once was:
 
 | Case | Why it matters |
 |---|---|
@@ -152,9 +158,9 @@ Sources are on `Q:\`, which is read-only — copy out, never write back.
 
 | Fixture | Source |
 |---|---|
-| `cr3-malta` | `Q:\Lightroom\Images\2025\2025-09-18`, first 40 CR3 by name |
-| `cr3-rockies` | `Q:\Lightroom\Images\2022\2022-09-27`, first 30 CR3 by name |
-| `nef-sedona` | `Q:\Lightroom\Images\2019\2019-01-19`, `DSC_0220`–`DSC_0249` |
+| `cr3-malta` | `Q:\Lightroom\Images\2025\2025-09-18`, first 2 CR3 by name |
+| `cr3-rockies` | `Q:\Lightroom\Images\2022\2022-09-27`, first 2 CR3 by name |
+| `nef-sedona` | `Q:\Lightroom\Images\2019\2019-01-19`, `DSC_0220`–`DSC_0221` |
 | `gpx/malta-2025-09-18.gpx` | `Q:\Photo GPX Tracks\2025\2025-09 - Malta, Sorrento\2025-09-18 - Valletta City Walk.gpx` |
 | `gpx/rockies-2022-09-27.gpx` | `Q:\Photo GPX Tracks\2022\2022-09 - Canada - BC, AB - Canadian Rockies\2022-09-27- Peyto Lake, Bow Lake, Yoho.gpx` |
 | `gpx/sedona-2019-01-19.gpx` | `Q:\Photo GPX Tracks\2019\[2019-01-19 15h38m14s]Sedona - Sat afternoon.gpx` |

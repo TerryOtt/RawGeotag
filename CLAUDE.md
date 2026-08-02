@@ -357,8 +357,8 @@ so that is the floor on any agreement these checks can demonstrate.
 
 ## Verifying a change — run every format, every time
 
-**`.\scripts\verify-fixtures.ps1`.** One command, all three fixtures (40 CR3 Malta,
-30 CR3 Rockies, 30 NEF Sedona), ~4 s, non-zero exit on any failure.
+**`.\scripts\verify-fixtures.ps1`.** One command, all three fixtures (2 CR3 Malta,
+2 CR3 Rockies, 2 NEF Sedona), seconds, non-zero exit on any failure.
 [`docs/FIXTURES.md`](docs/FIXTURES.md) owns the rest — what each fixture exercises,
 the expected aggregates, `-CheckSources`, and the rebuild recipe. **The expected
 hashes are deliberately not repeated here**, so a legitimate packet change has two
@@ -724,7 +724,7 @@ which is the whole point.
 | | `C:\...\RawGeotag-fixtures` | `N:\rawgeotag-bench` |
 |---|---|---|
 | For | correctness — byte-identical output | performance — read throughput |
-| Size | 2.37 GB, 100 files, 3 sets | ~18 GB, 800 files, 4 sets |
+| Size | 222 MB, 6 raws, 3 sets | ~18 GB, 800 files, 4 sets |
 | Formats | CR3 **and** NEF | NEF only |
 | Has a covering track | yes, all three sets | **no** |
 | Right storage | local NVMe, fast and fixed | the NAS, which is what a real import reads |
