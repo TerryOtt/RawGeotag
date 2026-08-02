@@ -10,6 +10,13 @@ If a trip is imminent and the update looks at all interesting, **skip it and tra
 the binary you have.** A version that is four point releases behind and verified is
 worth more than a current one you have not run against a fixture.
 
+**While you are here, has Lightroom Classic had a major version since last trip?** If
+so, run the two checks in [`LIGHTROOM-XMP.md`](LIGHTROOM-XMP.md) — under ten minutes,
+and `scripts\lr-xmp-check.ps1` does everything either side of the clicking. Same
+reasoning as this file, different trigger: you want to find out that Lightroom moved
+while you are at home with the fixtures, not in that hotel room. Dot releases do not
+warrant it.
+
 ## The short version
 
 ```
