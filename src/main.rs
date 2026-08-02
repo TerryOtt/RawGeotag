@@ -918,8 +918,9 @@ fn print_summary(summary: &Summary) {
         .map(|formats| format!("   ({formats})"))
         .unwrap_or_default();
     println!(
-        "Scanned  {:>7} raw files{breakdown}",
-        count(summary.scanned)
+        "Scanned  {:>7} raw file{}{breakdown}",
+        count(summary.scanned),
+        plural(summary.scanned)
     );
     if let Some(zones) = describe_offsets(summary.offsets) {
         println!("Timezone {:>7}   {zones}", count(summary.offsets.len()));
@@ -944,17 +945,32 @@ fn print_summary(summary: &Summary) {
     // separators that a bare `{:.1}` cannot produce.
     let tenths = (summary.elapsed * 10.0).round() as i64;
     println!(
-        "Elapsed  {:>7}.{}s  ({} files/sec, {} threads)",
+        "Elapsed  {:>7}.{}s  ({} files/sec, {} thread{})",
         thousands(tenths / 10),
         tenths % 10,
         thousands(rate.round() as i64),
-        summary.threads
+        summary.threads,
+        plural(summary.threads)
     );
 }
 
 /// `thousands` for the `usize` counts the summary deals in.
 fn count(value: usize) -> String {
     thousands(value as i64)
+}
+
+/// The `s` in "3 threads", absent for exactly one — so a `-j 1` run does not
+/// report "1 threads".
+///
+/// Only the summary's prose-shaped lines take this. The skip breakdown reads
+/// "3 existing sidecar" and stays that way on purpose: those are category
+/// labels, and a label does not agree with a number the way a sentence does.
+fn plural(value: usize) -> &'static str {
+    if value == 1 {
+        ""
+    } else {
+        "s"
+    }
 }
 
 /// Format an integer with US thousands separators: `3883` → `3,883`.
@@ -1119,6 +1135,14 @@ mod tests {
         // of three must not render as ",100" or ",100,000".
         assert_eq!(thousands(100), "100");
         assert_eq!(thousands(100_000), "100,000");
+    }
+
+    #[test]
+    fn only_one_of_something_drops_the_plural_s() {
+        // Zero takes "s" — "0 raw files" is right, "0 raw file" is not.
+        assert_eq!(plural(0), "s");
+        assert_eq!(plural(1), "");
+        assert_eq!(plural(2), "s");
     }
 
     #[test]
