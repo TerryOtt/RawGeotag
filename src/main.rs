@@ -144,27 +144,7 @@ fn run() -> Result<Outcome> {
 
     let started = Instant::now();
 
-    let tracks = collect_tracks(&args.gpx)?;
-    let track = Track::load(&tracks)?;
-    if args.verbose {
-        let (start, end) = track.span();
-        // Worth listing, not just counting: a directory argument expands to
-        // whatever was in it, and GPX filenames have been seen to lie about their
-        // own dates. The span below is the authority; these are what produced it.
-        for path in &tracks {
-            println!("  track: {}", path.display());
-        }
-        // The span is the union of every file given. It is not a claim of
-        // continuous coverage — holes between the tracks are still holes, and a
-        // photo falling in one is skipped like any other gap.
-        println!(
-            "Track: {} points from {} file(s), {} to {}",
-            count(track.point_count()),
-            tracks.len(),
-            format_utc(start),
-            format_utc(end)
-        );
-    }
+    let track = load_track(&args.gpx, args.verbose)?;
 
     let Walk {
         files,
@@ -173,16 +153,13 @@ fn run() -> Result<Outcome> {
     } = collect_paths(&args.dir)?;
 
     if files.is_empty() {
-        println!("Scanned 0 raw files under {}", args.dir.display());
+        println!(
+            "Scanned  {:>7} raw files under {}",
+            count(0),
+            args.dir.display()
+        );
         // The only signal that a whole shoot was invisible rather than absent.
-        if !ignored.is_empty() {
-            println!(
-                "Ignored {}   {}  (supported: {})",
-                count(ignored.values().sum::<usize>()),
-                describe_ignored(&ignored),
-                RawFormat::supported_extensions()
-            );
-        }
+        print_ignored(&ignored);
         return Ok(Outcome::Clean);
     }
     let scanned = files.len();
@@ -587,6 +564,37 @@ fn tally_writes(results: Vec<Written>, verbose: bool) -> Tally {
 /// Materializing into a `Vec` before parallelizing gives rayon contiguous slices
 /// to split, which load-balances far better than bridging a sequential iterator.
 /// It also yields an exact denominator for the progress bar.
+/// Resolve the GPX arguments and build the index, reporting what it resolved to.
+///
+/// Split out of `run` because it is one coherent step — resolve, load, describe —
+/// and because `run` reads better as a list of phases than as their contents.
+fn load_track(gpx: &[PathBuf], verbose: bool) -> Result<Track> {
+    let tracks = collect_tracks(gpx)?;
+    let track = Track::load(&tracks)?;
+
+    if verbose {
+        // Worth listing, not just counting: a directory argument expands to whatever
+        // was in it, and GPX filenames have been seen to lie about their own dates.
+        // The span is the authority; these are what produced it.
+        for path in &tracks {
+            println!("  track: {}", path.display());
+        }
+        // The span is the union of every file given. It is not a claim of continuous
+        // coverage — holes between the tracks are still holes, and a photo falling in
+        // one is skipped like any other gap.
+        let (start, end) = track.span();
+        println!(
+            "Track: {} points from {} file(s), {} to {}",
+            count(track.point_count()),
+            count(tracks.len()),
+            format_utc(start),
+            format_utc(end)
+        );
+    }
+
+    Ok(track)
+}
+
 /// Resolve the GPX arguments: each may be a `.gpx` file or a directory of them.
 ///
 /// **Not recursive, and that asymmetry with `DIR` is deliberate.** Photos are filed
@@ -790,16 +798,26 @@ fn describe_offsets(offsets: &BTreeMap<i32, usize>) -> Option<String> {
         .collect();
 
     let tail = if offsets.len() > 1 {
-        "   — two clocks in one run"
+        "two clocks in one run"
     } else {
-        "   — cameras are normally on UTC"
+        "cameras are normally on UTC"
     };
-    Some(format!(
-        "{:>7}   {}{}",
-        count(offsets.len()),
-        parts.join(", "),
-        tail
-    ))
+    Some(format!("{} — {tail}", parts.join(", ")))
+}
+
+/// The one place the ignored-files line is laid out. It is printed from two paths —
+/// a run that found no raws at all, and a normal summary — and having each format it
+/// itself is how they drifted into different column widths.
+fn print_ignored(ignored: &BTreeMap<String, usize>) {
+    if ignored.is_empty() {
+        return;
+    }
+    println!(
+        "Ignored  {:>7}   {}  (supported: {})",
+        count(ignored.values().sum::<usize>()),
+        describe_ignored(ignored),
+        RawFormat::supported_extensions()
+    );
 }
 
 /// Count the raws found, per format, in `RawFormat::ALL` order. Formats with no
@@ -820,15 +838,15 @@ fn tally_formats(files: &[RawFile]) -> Vec<(RawFormat, usize)> {
 /// Nothing is gained by telling someone their 40 CR3s were 40 CR3s. The breakdown
 /// exists for the case a run spans formats, which is the one that might not have
 /// been intended.
-fn describe_formats(by_format: &[(RawFormat, usize)]) -> String {
+fn describe_formats(by_format: &[(RawFormat, usize)]) -> Option<String> {
     if by_format.len() < 2 {
-        return String::new();
+        return None;
     }
     let parts: Vec<String> = by_format
         .iter()
         .map(|(format, n)| format!("{} {}", count(*n), format.extensions().join("/")))
         .collect();
-    format!("   ({})", parts.join(", "))
+    Some(parts.join(", "))
 }
 
 /// `".arw 418, .jpg 42"`, busiest first, and truncated so a messy directory cannot
@@ -888,22 +906,17 @@ fn print_summary(summary: &Summary) {
     // Widened from 5 to 7 to keep the column aligned once separators are in: a
     // seven-figure count still fits, and nobody has that many raws in one tree.
     println!();
+    let breakdown = describe_formats(summary.by_format)
+        .map(|formats| format!("   ({formats})"))
+        .unwrap_or_default();
     println!(
-        "Scanned  {:>7} raw files{}",
-        count(summary.scanned),
-        describe_formats(summary.by_format)
+        "Scanned  {:>7} raw files{breakdown}",
+        count(summary.scanned)
     );
-    if let Some(note) = describe_offsets(summary.offsets) {
-        println!("Timezone {note}");
+    if let Some(zones) = describe_offsets(summary.offsets) {
+        println!("Timezone {:>7}   {zones}", count(summary.offsets.len()));
     }
-    if !summary.ignored.is_empty() {
-        println!(
-            "Ignored  {:>7}   {}  (supported: {})",
-            count(summary.ignored.values().sum::<usize>()),
-            describe_ignored(summary.ignored),
-            RawFormat::supported_extensions()
-        );
-    }
+    print_ignored(summary.ignored);
     println!(
         "Tagged   {:>7}{}",
         count(summary.tagged),
@@ -1607,7 +1620,7 @@ mod tests {
             // CR3s were two CR3s is noise.
             assert_eq!(
                 describe_formats(&tally_formats(&walk.files)),
-                "",
+                None,
                 "{format:?}"
             );
             assert_eq!(walk.ignored.get("txt"), Some(&1), "{format:?}");
@@ -1624,9 +1637,10 @@ mod tests {
             [(RawFormat::Cr3, 2), (RawFormat::Nef, 1)]
         );
         // The mix is the case worth surfacing, so this one does get a breakdown.
+        // Content only — the parentheses and column belong to print_summary.
         assert_eq!(
-            describe_formats(&tally_formats(&walk.files)),
-            "   (2 cr3, 1 nef)"
+            describe_formats(&tally_formats(&walk.files)).as_deref(),
+            Some("2 cr3, 1 nef")
         );
         assert_eq!(walk.ignored.get("arw"), Some(&1));
     }
