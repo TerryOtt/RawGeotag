@@ -835,6 +835,29 @@ Local NVMe, full workflow on 3,883 files creating 2,394 sidecars — `-j 2` meas
 ~1,470 ms warm and ~1,723 ms cold, against ~1,790-1,850 ms at `-j 20` and ~1,640-1,920 ms
 at `-j 1`. `-j 2` won at min, median and max, warm *and* cold, so it is not noise.
 
+**Correction, measured 2026-08-02: "cold" above is not what a real import pays.** The
+same shoot, copied from `Q:\` to local `C:\` and then run for the first time, takes
+**20.5 s** — 191 files/s, reproduced twice within 50 ms (20.54 s and 20.49 s). Run
+again against those same files it is **1.38 s** (min of 3 at `-j 2`: 1.38 / 1.46 /
+1.48). First touch is therefore **~14x warm**, not the ~17% that the
+1,723-against-1,470 pair implies.
+
+What the older pair evidently measured was files whose *page cache* had been dropped
+but which Windows had already seen. A file freshly landed from somewhere else costs
+more than a cache miss. Defender real-time scanning is on here and reading its
+exclusion list needs admin, so the split between scanning and genuine first read is
+**not established** — only that it is first-touch cost and not the tool's.
+
+**Keep the ratio, not just the number: on a real import the tool is a rounding
+error.** Staging those 187.5 GB off `Q:\` took 7.2 min once and 14.3 min another time,
+against 20.5 s of geotagging — **under 5% of getting a day onto the machine**. Tuning
+`-j` is not where an import's time goes.
+
+Warm `-j` was re-measured at the same time and both figures moved: `-j 2` 1.38 s
+against `-j 20` 1.45 s, min of 3 each. **`-j 2` still wins, but by ~70 ms rather than
+the ~350 ms above** — close enough that the default now rests on the NTFS
+directory-lock argument rather than on this margin.
+
 Cold SMB read throughput, **CR3**: **25 files/s at `-j 1`, 107 at `-j 4`, 296 at
 `-j 20`** — nearly **12x** from parallelism. Projected onto a 3,883-file day that is
 ~155 s single-threaded versus ~13 s. This is why the rayon design stays even though
