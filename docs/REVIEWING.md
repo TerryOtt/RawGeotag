@@ -49,7 +49,7 @@ its bypass list would have exempted him from the force-push block too.
 
 | Ruleset | Rules | Bypass |
 |---|---|---|
-| `main: require pull request` | `pull_request` — 1 approval, **code-owner review required**, stale reviews dismissed on push, last push must be approved | repository admin, always |
+| `main: require pull request` | `pull_request` — 1 approval, **code-owner review required**, **squash the only permitted merge**, stale reviews dismissed on push, last push must be approved | repository admin, always |
 | `main: no force-push or deletion` | `non_fast_forward`, `deletion` | **none — binds the admin as well** |
 
 **"One approval" is not the same as "the maintainer's approval"**, and the difference
@@ -64,6 +64,24 @@ A code owner cannot approve their own pull request — which never bites here, b
 the maintainer bypasses this ruleset and commits straight to `main`. A code owner also
 needs write access or the rule silently matches nobody; check that before adding
 anyone to `CODEOWNERS`.
+
+### Every merge is a squash
+
+**One pull request becomes exactly one commit on `main`.** Set in two places on
+purpose, because they fail differently: the ruleset restricts `allowed_merge_methods`
+to `squash` for `main` specifically, and the repository settings switch off merge
+commits and rebase merges outright so the other buttons are not even offered. The
+ruleset is the enforcement; the repo setting is what stops someone reaching for a
+button that would then be refused.
+
+The squash commit is configured to take its **title from the pull request title** and
+its **body from the pull request body**, rather than concatenating every "wip" and
+"fix typo" message from the branch. That is deliberate given how much of this
+project's reasoning lives in commit messages — a squashed history is only an
+improvement if the surviving message is the considered one.
+
+None of this touches the maintainer's workflow, which bypasses pull requests
+entirely. It governs what arrives from anyone else.
 
 **The first is a no-op today and that is the point.** The repository is public with
 one collaborator, so a non-collaborator already cannot push at all — GitHub refuses
