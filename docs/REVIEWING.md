@@ -212,8 +212,8 @@ apply to the same diff:
   and comments explain *why*, not *what*
 
 Mechanically, that is `cargo clippy --all-targets -- -D warnings`, `cargo test`, and
-`.\scripts\verify-fixtures.ps1` — plus the determinism re-run if the change touched
-the phase structure, the outcome enums or the reporting order. A green suite is the
+`pwsh -NoProfile -File .\scripts\verify-fixtures.ps1` — plus the determinism re-run if
+the change touched the phase structure, the outcome enums or the reporting order. A green suite is the
 floor, not the bar: **clippy has no opinion about any row in the table above.**
 
 ### What runs automatically

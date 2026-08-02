@@ -52,10 +52,13 @@ what makes them worth doing; it is not a reason to do them for no cause.)*
 wrote and diffs it against the 15.4.1 baseline. The middle is irreducibly manual, for
 the reason recorded at the bottom of this file.
 
-```powershell
-.\scripts\lr-xmp-check.ps1 -Stage      # then do checks 1 and 2 in Lightroom
-.\scripts\lr-xmp-check.ps1 -Compare
 ```
+pwsh -NoProfile -File .\scripts\lr-xmp-check.ps1 -Stage    # then checks 1 and 2 in Lightroom
+pwsh -NoProfile -File .\scripts\lr-xmp-check.ps1 -Compare
+```
+
+(cmd cannot run a `.ps1` directly — it opens the file in Notepad and returns success.
+[`FIXTURES.md`](FIXTURES.md) has the mechanism.)
 
 `-Analyze <path>` prints the same facts for any single `.xmp`, which is how an
 archived Lightroom sidecar can be read for comparison.
@@ -115,7 +118,9 @@ Sources are the pinned fixtures in `..\RawGeotag-fixtures\` (see `FIXTURES.md`),
 already pair raws with a covering track.
 
 **Run this from the repo root** — `$src` and `$rg` are relative to it, so it works from
-whichever checkout you are in.
+whichever checkout you are in. Unlike the script calls above, this block *is*
+PowerShell rather than a one-shot invocation of one: from cmd, type `pwsh` to open a
+session, paste, then `exit`.
 
 ```powershell
 $src  = "..\RawGeotag-fixtures"

@@ -2,9 +2,39 @@
 
 Real camera files, pinned, for the end-to-end checks that must write sidecars.
 
-**Run `scripts\verify-fixtures.ps1`.** It covers every supported format in one pass
-and exits non-zero on any failure. [`TESTING.md`](TESTING.md) is the standard these
-serve — including the blind spot they structurally cannot cover.
+**Run `verify-fixtures.ps1` from the repo root:**
+
+```
+pwsh -NoProfile -File .\scripts\verify-fixtures.ps1
+```
+
+It covers every supported format in one pass and exits non-zero on any failure.
+[`TESTING.md`](TESTING.md) is the standard these serve — including the blind spot they
+structurally cannot cover.
+
+**Why `pwsh -File` and not the bare path — this is the one thing to know before your
+first run.** The shell here is cmd, and cmd cannot execute a `.ps1`: it runs only what
+is in `PATHEXT`, which does not list `.ps1`. It hands the file to its association
+instead — Notepad, on this machine — so a bare `.\scripts\verify-fixtures.ps1` at a cmd
+prompt **opens the script in an editor, prints nothing, and leaves `ERRORLEVEL` at 0**.
+That zero means *the file opened*, not *the fixtures passed*, and it is the failure
+worth remembering: the one command that proves output has not moved is the worst
+possible one to skip silently.
+
+*(`assoc .ps1` reports no association at all, which is misleading: the one in effect is
+a per-user `UserChoice` under `HKCU:\...\Explorer\FileExts\.ps1`, and `assoc` reads only
+the machine-level table. Verified 2026-08-02 — after `assoc` had already sent this very
+note out with the wrong reason in it.)*
+
+`-File` rather than `-Command` is what hands the script's exit code back, so
+`cargo test && pwsh -NoProfile -File .\scripts\verify-fixtures.ps1` still short-
+circuits; cmd understands `&&` too. `-NoProfile` keeps the run independent of a
+PowerShell profile nobody here maintains.
+
+**Inside a PowerShell session the bare path is correct** and the prefix is redundant —
+that is the form Claude uses, whose shell tool is already pwsh. **The multi-line
+recipes further down are PowerShell as well** (`Get-ChildItem`, `Get-FileHash`, and the
+rebuild steps): type `pwsh` to drop into a session, paste, then `exit`.
 
 ## What lives where, and why it is split
 
@@ -131,8 +161,8 @@ matters most — see *Why three and not two* above for the 49.9 km it catches.
 1. Put your sets under a directory of your choosing, one per case.
 2. Point the harness at it:
 
-   ```powershell
-   .\scripts\verify-fixtures.ps1 -FixtureRoot <path-to-your-tree>
+   ```
+   pwsh -NoProfile -File .\scripts\verify-fixtures.ps1 -FixtureRoot <path-to-your-tree>
    ```
 
 3. It will fail, reporting the aggregates it actually got. Those are your baselines.
@@ -174,7 +204,12 @@ is passing. What actually defines a fixture is its per-file manifest in
 `scripts/fixture-manifests/` — which is why the rebuild is only finished once
 `-CheckSources` agrees.
 
-After rebuilding, run `scripts\verify-fixtures.ps1 -CheckSources`. It validates every
-raw against `scripts/fixture-manifests/*.sha256` before running the tool, so a
-mismatch tells you the *fixture* drifted rather than the code — which is the one
-question a bare aggregate comparison cannot answer.
+After rebuilding, run:
+
+```
+pwsh -NoProfile -File .\scripts\verify-fixtures.ps1 -CheckSources
+```
+
+It validates every raw against `scripts/fixture-manifests/*.sha256` before running the
+tool, so a mismatch tells you the *fixture* drifted rather than the code — which is the
+one question a bare aggregate comparison cannot answer.

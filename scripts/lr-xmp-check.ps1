@@ -33,12 +33,16 @@
     since this writes sidecars and constraint 5 forbids trial runs against Q:\.
 
 .EXAMPLE
-    .\scripts\lr-xmp-check.ps1 -Stage
+    pwsh -NoProfile -File .\scripts\lr-xmp-check.ps1 -Stage
     # ...do the Lightroom steps it prints...
-    .\scripts\lr-xmp-check.ps1 -Compare
+    pwsh -NoProfile -File .\scripts\lr-xmp-check.ps1 -Compare
+
+    # Spelled for cmd, which is the shell in use here and cannot run a .ps1 directly
+    # -- a bare path opens it in Notepad and returns 0. From a PowerShell session it
+    # is just .\scripts\lr-xmp-check.ps1 -Stage.
 
 .EXAMPLE
-    .\scripts\lr-xmp-check.ps1 -Analyze "Q:\Lightroom\Images\2023\2023-05-06\DSC_0218.xmp"
+    pwsh -NoProfile -File .\scripts\lr-xmp-check.ps1 -Analyze "Q:\Lightroom\Images\2023\2023-05-06\DSC_0218.xmp"
 #>
 [CmdletBinding(DefaultParameterSetName = 'Stage')]
 param(
@@ -207,7 +211,7 @@ In Lightroom Classic — this part cannot be automated, see docs/LIGHTROOM-XMP.m
        They need not be correct — only the spelling is being read.
     c. Metadata > Save Metadata to File  (Ctrl+S).
 
-Then:  .\scripts\lr-xmp-check.ps1 -Compare
+Then:  pwsh -NoProfile -File .\scripts\lr-xmp-check.ps1 -Compare
 "@
     exit 0
 }

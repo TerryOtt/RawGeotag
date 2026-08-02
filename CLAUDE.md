@@ -377,6 +377,21 @@ the expected aggregates, `-CheckSources`, and the rebuild recipe. **The expected
 hashes are deliberately not repeated here**, so a legitimate packet change has two
 places to update rather than three.
 
+**Terry works in cmd and does not use PowerShell — so the two of you spell this
+command differently, and handing him yours does not work.** Your `PowerShell` tool is
+already pwsh, where the bare path above is right. At his cmd prompt that same line
+opens the script in Notepad, prints nothing and sets `ERRORLEVEL` to 0 — a silent skip
+that looks like a pass. **Any `.ps1` you put in front of him, or into a doc, is
+therefore spelled:**
+
+```
+pwsh -NoProfile -File .\scripts\verify-fixtures.ps1
+```
+
+`-File` and not `-Command`, so the exit code survives for `&&`. A *multi-line*
+PowerShell recipe is the other case: tell him to type `pwsh`, paste, then `exit`.
+Rendering a block of cmdlets into cmd is not worth it and mostly is not possible.
+
 **Never run just one.** CR3 goes through `Streaming` and NEF through `WholeFile` —
 different code in `raw.rs` — so one passing says nothing about the other, and the
 three differ by timezone case besides. A bug that dropped the EXIF offset entirely

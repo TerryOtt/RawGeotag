@@ -101,7 +101,7 @@ signal that would normally prompt a test — something failing — never arrives
 cargo clippy --all-targets -- -D warnings
 cargo test
 cargo build --release
-.\scripts\verify-fixtures.ps1
+pwsh -NoProfile -File .\scripts\verify-fixtures.ps1
 ```
 
 **`--all-targets` is not optional** — without it clippy does not lint test code at
@@ -111,8 +111,9 @@ runs `target\release\rawgeotag.exe` and throws if it is missing.
 
 ### The fixtures — every format, every time
 
-`.\scripts\verify-fixtures.ps1` covers all three fixtures and exits non-zero on any
-failure. [`FIXTURES.md`](FIXTURES.md) has what each one holds and why.
+`verify-fixtures.ps1` — invoked as in *What to run* above, since cmd cannot run a
+`.ps1` directly — covers all three fixtures and exits non-zero on any failure.
+[`FIXTURES.md`](FIXTURES.md) has what each one holds and why.
 
 **Never run just one.** `read_strategy` sends CR3 through `Streaming` and NEF
 through `WholeFile` — different code in `raw.rs` — so one passing says nothing about

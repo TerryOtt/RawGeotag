@@ -25,7 +25,7 @@ cargo update                     # take everything semver-compatible
 cargo build --release
 cargo test
 cargo clippy --all-targets -- -D warnings
-.\scripts\verify-fixtures.ps1    # the one that actually proves anything
+pwsh -NoProfile -File .\scripts\verify-fixtures.ps1   # the one that actually proves anything
 git add Cargo.lock && git commit
 ```
 
@@ -91,7 +91,7 @@ exposure is concentrated in the pre-1.0 crates: **`gpx`, `chrono`, `time`, `indi
 cargo build --release
 cargo test
 cargo clippy --all-targets -- -D warnings
-.\scripts\verify-fixtures.ps1
+pwsh -NoProfile -File .\scripts\verify-fixtures.ps1
 ```
 
 The release build comes first because `verify-fixtures.ps1` runs
@@ -107,15 +107,19 @@ under a second — see [`FIXTURES.md`](FIXTURES.md).
 
 ### Running `verify-fixtures.ps1`
 
-From the repo root, in **PowerShell** — it is a `.ps1`, so it does not run from a bash
-prompt:
+From the repo root:
 
 ```
-.\scripts\verify-fixtures.ps1
+pwsh -NoProfile -File .\scripts\verify-fixtures.ps1
 ```
 
-The leading `.\` is required; PowerShell does not search the current directory. No
-arguments are needed on this machine — the script defaults to the sibling directory
+**Use that spelling even though it looks roundabout.** At a cmd prompt the bare
+`.\scripts\verify-fixtures.ps1` opens the script in Notepad, prints nothing and returns
+`ERRORLEVEL` 0 — a silent skip that reads like a pass; [`FIXTURES.md`](FIXTURES.md) has
+the mechanism and the reason `assoc` misleads you about it. Being a `.ps1` it does not
+run from a bash prompt either.
+
+No arguments are needed on this machine — the script defaults to the sibling directory
 `..\RawGeotag-fixtures` and to this repo's release binary. It writes nothing outside
 the fixture tree, touches no photo library, and finishes in well under a second.
 
@@ -134,7 +138,8 @@ deliberately not repeated here, so a legitimate packet change has two places to
 update rather than three.)
 
 Any failure prints a red `FAILED:` block listing what went wrong and **exits non-zero**,
-so it chains: `cargo test && .\scripts\verify-fixtures.ps1`.
+so it chains — cmd understands `&&` too:
+`cargo test && pwsh -NoProfile -File .\scripts\verify-fixtures.ps1`.
 
 Three things worth knowing before the first run:
 
@@ -144,7 +149,7 @@ Three things worth knowing before the first run:
   that exists:
 
   ```
-  .\scripts\verify-fixtures.ps1 -FixtureRoot <path-to-a-RawGeotag-fixtures-tree>
+  pwsh -NoProfile -File .\scripts\verify-fixtures.ps1 -FixtureRoot <path-to-a-tree>
   ```
 
   [`FIXTURES.md`](FIXTURES.md) owns the rest: how the tree is laid out, why a second
@@ -159,7 +164,8 @@ Three things worth knowing before the first run:
 
 Execution policy is `RemoteSigned` here, which runs local scripts without complaint. If
 you ever get the fixtures from a downloaded zip rather than a copy, Windows marks the
-files as remote and you would need `Unblock-File .\scripts\verify-fixtures.ps1` first.
+files as remote and you would need
+`pwsh -NoProfile -Command "Unblock-File .\scripts\verify-fixtures.ps1"` first.
 
 ### If a fixture hash moves after an update, that is a regression
 

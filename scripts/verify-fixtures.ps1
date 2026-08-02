@@ -27,10 +27,14 @@
     fixture drifted rather than the code changing.
 
 .EXAMPLE
-    .\scripts\verify-fixtures.ps1
+    pwsh -NoProfile -File .\scripts\verify-fixtures.ps1
+
+    # Spelled for cmd, which is the shell in use here and cannot run a .ps1 directly
+    # -- a bare path opens it in Notepad and returns 0, which reads like a pass. From
+    # a PowerShell session it is just .\scripts\verify-fixtures.ps1.
 
 .EXAMPLE
-    .\scripts\verify-fixtures.ps1 -CheckSources
+    pwsh -NoProfile -File .\scripts\verify-fixtures.ps1 -CheckSources
 #>
 [CmdletBinding()]
 param(
