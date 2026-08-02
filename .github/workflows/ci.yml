@@ -5,10 +5,17 @@
 # exists on a clone that ran `git config core.hooksPath .githooks`, and never sees a
 # pull request from a fork. This does.
 #
-# windows-latest rather than the cheaper ubuntu runner, because Windows is the only
-# platform this tool actually ships on -- the storage reasoning throughout CLAUDE.md
-# is about NTFS, and the verification harness is PowerShell. Testing somewhere the
-# tool is never run would be measuring a configuration that does not occur.
+# windows-latest, because Windows is the only platform this tool actually ships on --
+# the storage reasoning throughout CLAUDE.md is about NTFS and the verification
+# harness is PowerShell, so testing somewhere the tool is never run would measure a
+# configuration that does not occur.
+#
+# This costs nothing: Actions minutes are free and unlimited on public repositories,
+# on any standard GitHub-hosted runner. The Windows 2x minute multiplier people warn
+# about applies only to *private* repos, which get 2,000 free minutes a month. If
+# this repo is ever made private, that multiplier starts to matter and ubuntu-latest
+# becomes the frugal choice -- and note branch protection needs a paid plan at the
+# same moment, so both bite together.
 #
 # Deliberately NOT here: scripts/verify-fixtures.ps1. It needs 222 MB of raw
 # photographs that are not in version control, so it cannot run on a clean checkout.
