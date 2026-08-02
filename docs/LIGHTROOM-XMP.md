@@ -11,7 +11,7 @@ version. It is versioned for the same reason the fixture harness is: the staged 
 lives on disposable storage and the recorded findings are worth nothing if the method
 that produced them is gone.
 
-## Check both directions, and check them every upgrade
+## Check both directions
 
 The requirement is that Lightroom **reads** ours. But reading is a *lagging*
 indicator: by the time it fails you are already broken, and possibly broken in a
@@ -47,11 +47,23 @@ at home with the fixtures and the archive, not in a hotel room with a card reade
 opposite error of treating emission-watching as optional. Both checks being cheap is
 what makes them worth doing; it is not a reason to do them for no cause.)*
 
+**`scripts\lr-xmp-check.ps1` does everything either side of the Lightroom step.**
+`-Stage` builds both folders and prints the clicks; `-Compare` reads what Lightroom
+wrote and diffs it against the 15.4.1 baseline. The middle is irreducibly manual, for
+the reason recorded at the bottom of this file.
+
+```powershell
+.\scripts\lr-xmp-check.ps1 -Stage      # then do checks 1 and 2 in Lightroom
+.\scripts\lr-xmp-check.ps1 -Compare
+```
+
+`-Analyze <path>` prints the same facts for any single `.xmp`, which is how an
+archived Lightroom sidecar can be read for comparison.
+
 ### 1. Does Lightroom still read ours?
 
-1. Take a raw and its rawgeotag sidecar (any fixture directory after a normal run).
-2. Copy both to a scratch folder on `N:\` and import with **Add**.
-3. Look at the Map module, or the GPS field in the Metadata panel.
+Import `1-read-check` — the photo *with* our sidecar beside it — and look at the Map
+module, or the GPS field in the Metadata panel.
 
 If the pin lands where it should, current Lightroom ingests our packet and nothing is
 broken. This works *because* of the hazard step 3 must avoid — Lightroom adopts GPS
@@ -60,10 +72,12 @@ this check possible.
 
 ### 2. How does Lightroom spell a geotag now?
 
-**You do not need a tracklog to read a format off Lightroom.** Set GPS by hand on one
-photo — Metadata panel, GPS field — then **Metadata ▸ Save Metadata to File**, and
-read the sidecar it writes. No staging script, no tracklog, and none of the timezone
-trap below, all of which exist for the positional diff in step 3.
+**You do not need a tracklog to read a format off Lightroom.** Import
+`2-emission-check` — the same photo, with our sidecar held aside — set GPS by hand in
+the Metadata panel, then **Metadata ▸ Save Metadata to File**, and run `-Compare`.
+
+No tracklog, and none of the timezone trap below: both belong to the positional diff
+in step 3, which is asking a different question and pays for it.
 
 Answer *The questions to ask* further down, and compare against the table in
 CLAUDE.md's *The XMP we emit*. Then apply the rule already recorded there: **follow a
@@ -233,11 +247,17 @@ sidecars to diff. It would turn the hour below into a command.
    argument is withdrawn: emission is the leading indicator, and watching it is how
    we avoid the day Lightroom stops accepting a format we let drift. The reason the
    plugin loses is cost, not purpose.*
-2. **The guard shares a failure mode with the thing it guards.** A plugin is built on
-   the Lightroom SDK, which Adobe also revises. It would break on exactly the events
-   it exists to check, and you would find out at the moment you needed it — having
-   trusted it in the meantime. A guard that fails silently at the point of use is
-   worse than no guard.
+2. **The guard shares a failure mode with the thing it guards, and bills you between
+   uses.** A plugin is built on the Lightroom SDK, which Adobe also revises — so it
+   would break on exactly the events it exists to check, and you would find out at
+   the moment you needed it, having trusted it in the meantime. A guard that fails
+   silently at the point of use is worse than no guard.
+
+   **The standing cost is the worse half.** The plugin would have to be kept current
+   against a shifting SDK *forever*, to serve a check run roughly once a year. A
+   manual procedure has zero carrying cost between uses; a plugin's carrying cost
+   never stops, and is paid in the same currency — Adobe changing something — that
+   the check exists to detect. Keeping the process manual skips that entirely.
 3. **The base rate is zero.** GPS encoding is unchanged across Adobe XMP Core
    5.6-c140 (2019), 7.0-c000 (2024) and 15.4.1 (2026), while namespaces were added
    around it. Adobe is demonstrably additive here.
