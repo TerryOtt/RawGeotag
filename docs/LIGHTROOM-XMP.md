@@ -19,8 +19,7 @@ hotel room with a card reader and 2,000 photos waiting. What Lightroom **emits**
 the *leading* one. If its spelling of a geotag starts moving, follow it — so the gap
 never widens into something that one day stops being accepted.
 
-**Neither check substitutes for the other, and both are cheap enough to run on every
-Lightroom upgrade.**
+**Neither check substitutes for the other, and together they cost under ten minutes.**
 
 | | Question | Tells you | Cost |
 |---|---|---|---|
@@ -28,9 +27,25 @@ Lightroom upgrade.**
 | **2** | How does Lightroom spell a geotag *now*? | whether the format is *moving* | ~5 min |
 | **3** | Does its position agree with ours on the same photo and track? | whether our interpolation is right | ~1 hr |
 
-Run **1 and 2 on every upgrade**. Run **3** only when 2 shows movement, or when our
-own interpolation has changed and positional agreement needs re-establishing — that
-is what it was built for, and it is why it costs what it costs.
+Run **3** only when 2 shows movement, or when our own interpolation has changed and
+positional agreement needs re-establishing — that is what it was built for, and it is
+why it costs what it costs.
+
+### When to run 1 and 2
+
+**On a major Lightroom version — 15.x to 16.0 — or after any release whose notes
+touch metadata, Map or XMP. Not on dot releases.** A format change lands in a feature
+release; checking 15.4.1 against 15.4.2 is noise, and a check run out of ritual stops
+being read carefully.
+
+In practice that is roughly annual, and **the natural place for it is the pre-trip
+routine that [`UPDATING.md`](UPDATING.md) already describes for dependencies** — same
+reasoning, different trigger. You want to discover that Lightroom moved while you are
+at home with the fixtures and the archive, not in a hotel room with a card reader.
+
+*(An earlier draft said "every upgrade". That was an over-correction against the
+opposite error of treating emission-watching as optional. Both checks being cheap is
+what makes them worth doing; it is not a reason to do them for no cause.)*
 
 ### 1. Does Lightroom still read ours?
 
@@ -237,9 +252,22 @@ sidecars to diff. It would turn the hour below into a command.
    to File" without a human. Speculative work whose feasibility is unknown, against a
    risk that has never once materialised, is the wrong trade twice over.
 
-**What would reopen it:** the quick check failing, or two consecutive Lightroom
-releases that each move the GPS encoding — at which point the base rate argument is
-dead and the cost of the manual method starts compounding. Not before.
+**And there is no third door.** Checked 2026-08-02: Lightroom Classic has no CLI and
+no COM interface on Windows, and Adobe's only supported automation surface *is* the
+Lua plugin SDK. So "use an API instead of writing a plugin" is not an alternative —
+it is the same proposal. Claude has no MCP server or skill for Lightroom either;
+driving the UI through PowerShell SendKeys or UI Automation against a custom-drawn
+interface would be more brittle than doing it by hand, and would still need a human
+to set up catalog state.
+
+**What *can* be automated is everything either side of the Lightroom step** — staging
+the photo, running rawgeotag, and diffing whatever sidecar Lightroom produces against
+the recorded 15.4.1 baseline. The irreducible manual part is opening Lightroom,
+setting GPS on one photo, and pressing Ctrl+S.
+
+**What would reopen the plugin question:** the quick check failing, or two consecutive
+Lightroom releases that each move the GPS encoding — at which point the base rate
+argument is dead and the manual cost starts compounding. Not before.
 
 ## Housekeeping
 

@@ -423,12 +423,15 @@ not for all time.** The only thing that reopens it is evidence that current Ligh
 emits or expects something different; on a major upgrade, re-run the exercise below
 and follow whatever it does now.
 
-**Watch both directions, every upgrade.** That Lightroom still *reads* ours is the
-requirement, but it is a lagging signal — it fails only once we are already broken.
-What Lightroom *emits* is the leading one, and following a material change in it is
-how we avoid ever letting the gap widen into something that stops being accepted.
-[`docs/LIGHTROOM-XMP.md`](docs/LIGHTROOM-XMP.md) has both checks; together they cost
-under ten minutes, so there is no version worth skipping them for. Not spec-purity, not tidiness, not more precision,
+**Watch both directions.** That Lightroom still *reads* ours is the requirement, but
+it is a lagging signal — it fails only once we are already broken. What Lightroom
+*emits* is the leading one, and following a material change in it is how we avoid
+ever letting the gap widen into something that stops being accepted.
+[`docs/LIGHTROOM-XMP.md`](docs/LIGHTROOM-XMP.md) has both checks, under ten minutes
+together, on major Lightroom versions rather than dot releases. It also records that
+Adobe's only automation surface is the Lua plugin SDK, so **"automate it with an API
+instead" is not an alternative to the plugin already declined there — it is the same
+proposal.** Not spec-purity, not tidiness, not more precision,
 not a nicer-looking document, not a new crate that renders XMP — **a proposal resting
 on any of those is answered by this sentence.** The evidence here is a same-photo,
 same-track diff rather than a reading of the spec, so repeating it against 15.4.1 will
