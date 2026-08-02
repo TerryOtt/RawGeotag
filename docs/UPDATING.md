@@ -117,8 +117,12 @@ it is there to exercise, so the output is also the explanation:
 === cr3-rockies ===
     exercises: Streaming read path; EXIF offset +01:00 (real conversion)
     count    : 30 sidecars  OK
-    aggregate: 0D969878B1B7081C  OK
+    aggregate: <16 hex digits>  OK
 ```
+
+(The real aggregates are in the harness and in [`FIXTURES.md`](FIXTURES.md); they are
+deliberately not repeated here, so a legitimate packet change has two places to
+update rather than three.)
 
 Any failure prints a red `FAILED:` block listing what went wrong and **exits non-zero**,
 so it chains: `cargo test && .\scripts\verify-fixtures.ps1`.

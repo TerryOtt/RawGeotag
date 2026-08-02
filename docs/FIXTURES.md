@@ -96,6 +96,13 @@ Sources are on `Q:\`, which is read-only — copy out, never write back.
 
 That last one's brackets need `-LiteralPath` in PowerShell.
 
+**"First 40 by name" is how each set was originally chosen, not what defines it now.**
+That selection returns the same 40 files only *by luck*: add one file to that folder
+and it quietly means a different set, while the recorded aggregate still looks like it
+is passing. What actually defines a fixture is its per-file manifest in
+`scripts/fixture-manifests/` — which is why the rebuild is only finished once
+`-CheckSources` agrees.
+
 After rebuilding, run `scripts\verify-fixtures.ps1 -CheckSources`. It validates every
 raw against `scripts/fixture-manifests/*.sha256` before running the tool, so a
 mismatch tells you the *fixture* drifted rather than the code — which is the one

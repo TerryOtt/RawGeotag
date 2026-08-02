@@ -177,30 +177,6 @@ structurally different execution models to reason about and test. Constraint 3 w
 This is what makes output byte-identical at any `--jobs`. Do not add an `eprintln!`
 inside a worker.
 
-## Dependency versions: check crates.io, never recall from memory
-
-**The full process is [`docs/UPDATING.md`](docs/UPDATING.md)** — cadence, the
-`cargo outdated` column reading, the verification sequence, and what to do when a
-fixture hash moves after a bump (it is a regression, and the usual "re-derive the
-hash" advice inverts). What follows here is only the part that has bitten twice.
-
-The version numbers in [`docs/PLAN.md`](docs/PLAN.md)'s dependency table are
-**indicative, not authoritative**. Before any of them lands in `Cargo.toml` — a new
-dep, or a bump — confirm the current release with `cargo search <crate> --limit 1`.
-
-This is not hypothetical. `indicatif` was pinned at `"0.17"` because that version was
-familiar, not because it was current; 0.18 had already shipped six patch releases by
-then. It sat stale until a human noticed.
-
-What makes this bite is Cargo's `0.x` rule: for a pre-1.0 crate the **minor** is the
-breaking-change position, so `"0.17"` means `>=0.17.0, <0.18.0` and *can never*
-resolve to 0.18. `cargo update` respects that ceiling and reports "Locking 0
-packages" while three minor releases behind — reassuring and wrong. **A clean `cargo
-update` is not evidence of being current.** Only crates.io can tell you.
-
-`1.x` deps are mostly self-correcting (`anyhow = "1"` keeps picking up 1.0.x), so the
-risk concentrates in the `0.x` crates: `gpx`, `chrono`, `time`, `indicatif`.
-
 ## Settled decisions worth not rediscovering
 
 - Sidecar naming: `IMG_1234.CR3` → `IMG_1234.xmp` (Adobe convention, extension replaced).
@@ -315,13 +291,6 @@ clippy skips test code, which is over 40% of this crate's lines. (No count here 
 it went stale three times; `cargo test` is the authoritative answer.) Toolchain on
 this machine: Rust 1.97.1 MSVC, with the VS Build Tools C++ workload installed.
 
-**When you add a test for an invariant the compiler cannot see, mutation-check it**:
-break the thing it guards, confirm that test fails, revert. Green proves the code is
-right today; it does not prove the test would notice if the code stopped being right.
-Verification item 10 in the plan carries the running table of mutations already tried
-and the failure shape to watch for — a change that compiles, passes everything else,
-and silently alters which photos get tagged.
-
 **Byte-level verification covers five shoots on two bodies** — four Canon EOS R5
 (CR3) and one Nikon D3300 (NEF) — written up below. That is a narrower claim than
 where the tool has been *used*: *Field patterns from real shoots* draws on several
@@ -358,22 +327,60 @@ a 100 s / 189 m hole. Six sidecars spot-checked against the raw GPX agreed to **
 0.11 m**, all exact-timestamp hits (the logger samples at 1 Hz, so most photos land on
 a recorded point and are never interpolated at all).
 
-Beware that GPX filenames can lie about their own date: `2025-09-21 - Amalfi Coast
-Drive.gpx` held data from 09-24 and was renamed to `2025-09-24 - Sorrento to Rome
-Drive.gpx`. Read the span, never the name — `rawgeotag --verbose --dry-run <empty-dir>
-cr3 <gpx>` prints it and exits before touching any photo.
+Across all five, interpolation agrees to within the coordinate encoding's resolution:
+`xmp.rs` writes ten-thousandths of a minute, and 0.0001 minute of latitude is ~0.19 m,
+so that is the floor on any agreement these checks can demonstrate.
 
-Interpolation agrees to within the coordinate encoding's resolution: `xmp.rs` writes
-ten-thousandths of a minute, and 0.0001 minute of latitude is ~0.19 m, so that is the
-floor on any agreement these checks can demonstrate. ExifTool reads the sidecars back
-correctly and `-validate` is OK.
+## Verifying a change — run every format, every time
 
-**Output is deterministic** — same input at `--jobs 1`, `2` and `16` produced
-byte-identical sidecars and identical warning lists over the 3,883-file set. Re-run
-that check after any change to the phase structure, the outcome enums, reporting
-order, or the GPX load path (which is parallel too, see below).
+**`.\scripts\verify-fixtures.ps1`.** One command, all three fixtures (40 CR3 Malta,
+30 CR3 Rockies, 30 NEF Sedona), ~4 s, non-zero exit on any failure.
+[`docs/FIXTURES.md`](docs/FIXTURES.md) owns the rest — what each fixture exercises,
+the expected aggregates, `-CheckSources`, and the rebuild recipe. **The expected
+hashes are deliberately not repeated here**, so a legitimate packet change has two
+places to update rather than three.
 
-Note ExifTool calls the XMP `exif:GPSTimeStamp` property **`GPSDateTime`**; asking it
+**Never run just one.** CR3 goes through `Streaming` and NEF through `WholeFile` —
+different code in `raw.rs` — so one passing says nothing about the other, and the
+three differ by timezone case besides. A bug that dropped the EXIF offset entirely
+would pass Malta and Sedona and misplace a Rockies photo by **49.9 km**, still
+tagging, with no error or warning.
+
+**This holds even when you are asked for one format.** "Run the NEF verification"
+means *verify* — run all three and say what was covered. The request is for
+confidence that the tool works; a single-format pass does not supply it, and the
+other two cost seconds. Narrowing scope here has been raised twice.
+
+**And do not name one fixture as though it were the check.** Terry accepts the CLI's
+tab-enter prompt suggestions, which are drawn from recent conversation — so writing
+"the Sedona NEF verification" produces exactly that suggestion, he accepts it, and
+the narrow framing re-enters the transcript. Call it **the full verification** or
+`verify-fixtures.ps1`; name a fixture only when the subject really is that fixture.
+
+**He has asked to be teased when he asks for one — do it.** His instruction: past-
+Terry told you to make fun of today-Terry for falling into a brain trap he left
+himself a note about. So run all three and land a light jab at the recursion, then
+move on. **One line, not a bit**, and do not soften it into nothing: this was
+requested rather than tolerated, and the joke is what makes the reminder stick.
+
+### Two checks the fixture harness does not cover
+
+**Determinism, after any change to the phase structure, the outcome enums, the
+reporting order, or the GPX load path** (which is parallel too). Same input at
+`--jobs 1`, `2` and `16` must produce byte-identical sidecars *and* identical warning
+lists. Compare against the previous run's artifacts as well as across job counts — a
+reorder that is consistent at every `-j` passes the cross-job check and fails only
+the historical one. The fixture aggregates cover that half for free.
+
+**Mutation-checking, when you add a test for an invariant the compiler cannot see.**
+Break the thing it guards, confirm that test fails, revert. Green proves the code is
+right today; it does not prove the test would notice if the code stopped being right.
+Verification item 10 in the plan carries the table of mutations already tried and the
+failure shape to watch for — a change that compiles, passes everything else, and
+silently alters which photos get tagged.
+
+**Using ExifTool as an oracle:** it reads our sidecars back correctly and `-validate`
+is OK. Note it calls the XMP `exif:GPSTimeStamp` property **`GPSDateTime`** — asking
 for `GPSTimeStamp` on a sidecar returns nothing, which is a naming difference, not a
 bug.
 
@@ -385,20 +392,14 @@ bug.
 > conforming to it proves very little; we are chasing whatever Lightroom will read
 > without complaint today.
 
-**Closed on 2026-08-01 against Lightroom Classic 15.4.1** — but closed *against a
-version*, not for all time. **The one thing that reopens it is Lightroom changing what
-it emits.** On a major Lightroom upgrade, re-run the exercise and follow whatever it
-does now; the recipe is below and costs an hour.
-
-Until then, do not re-open it on argument alone. The evidence is a same-photo,
-same-track diff rather than a reading of the spec, so a session that repeats it against
-15.4.1 will produce these numbers again.
-
-**A Lightroom change is the *only* thing that justifies changing the packet.** Not
-spec-purity, not tidiness, not more precision, not a nicer-looking document, not a new
-crate that renders XMP — **none of those are reasons, and a proposal resting on one is
-answered by this sentence.** The bar is evidence that current Lightroom emits or expects
-something different from what it emitted at 15.4.1.
+**Closed on 2026-08-01 against Lightroom Classic 15.4.1 — closed against a *version*,
+not for all time.** The only thing that reopens it is evidence that current Lightroom
+emits or expects something different; on a major upgrade, re-run the exercise below
+and follow whatever it does now. Not spec-purity, not tidiness, not more precision,
+not a nicer-looking document, not a new crate that renders XMP — **a proposal resting
+on any of those is answered by this sentence.** The evidence here is a same-photo,
+same-track diff rather than a reading of the spec, so repeating it against 15.4.1 will
+only produce these numbers again.
 
 And even then only for a difference *in kind*. **Lightroom merely not writing a property
 we write is not a change to follow.** It already omits `GPSMapDatum`, `GPSTimeStamp` and
@@ -410,10 +411,13 @@ is not a difference worth closing; different-in-kind is.**
 
 **The recipe is versioned: [`docs/LIGHTROOM-XMP.md`](docs/LIGHTROOM-XMP.md).** It has
 the staging script, the Lightroom steps, the timezone trap per format, the questions to
-ask, and the recorded answers for 15.4.1 and the two earlier eras. It is in the repo
-rather than only in `N:\lr-xmp-compare\` for the same reason the fixture harness is —
-findings are worth nothing once the method that produced them is gone, and the staged
-copy sits on disposable storage.
+ask, and the recorded answers for 15.4.1 and the two earlier eras. It is in the repo for
+the same reason the fixture harness is: findings are worth nothing once the method that
+produced them is gone — and the tree that produced these is already gone, since Terry
+removed `N:\lr-xmp-compare\` on 2026-08-01. Rebuild from the recipe when there is a new
+Lightroom to test. Lightroom's sidecars in such a tree are **Lightroom-created**, so
+constraint 6 binds on them; `N:\` being disposable does not exempt them, and Claude does
+not clear that tree — Terry does.
 
 **The workflow this tool serves is: geotag first, import into Lightroom second.** That
 ordering is not just convenience — it is the only window in which no Lightroom sidecar
@@ -438,17 +442,12 @@ Compared against real LR sidecars on `Q:\` — `2019\2019-01-19\DSC_0001.xmp`
 
 **Lightroom's GPS flavor has not moved since at least 2019.** Namespaces were added
 across those eras (`exifEX`, `crd`, `xmpDM`) and `x:xmptk` changed, but how GPS is
-expressed did not change at all.
-
-**Confirmed at Lightroom Classic 15.4.1**, which is the version Terry runs — 9 CR3 and
-5 NEF geotagged in LR from the same tracks rawgeotag used, then diffed. Every row of the
-table above still holds: coordinates are still `DDD,MM.mmmk` with a hemisphere letter
-(`exif:GPSLatitude="35,53.72480316N"`), `GPSVersionID` is still `2.2.0.0`, altitude is
-still `/10000` and **still carries no `GPSAltitudeRef`** even when positive, there is
-still no packet wrapper and no BOM, and `GPSTimeStamp` and `GPSMapDatum` are still
-absent. The `x:xmptk` string is byte-identical to 13.4's. It also writes
-`photoshop:SidecarForExtension` for **both** CR3 and NEF. **So the encoding our packet
-rests on is stable across 5.6-c140 → 7.0-c000 → 15.4.1, and nothing needs changing.**
+expressed did not. **Re-confirmed at 15.4.1** — 9 CR3 and 5 NEF geotagged in Lightroom
+from the same tracks rawgeotag used, then diffed: every row above still holds, down to
+`x:xmptk` being byte-identical to 13.4's. The one addition is
+`photoshop:SidecarForExtension`, which it now writes for both formats. **So the
+encoding our packet rests on is stable across 5.6-c140 → 7.0-c000 → 15.4.1, and
+nothing needs changing.**
 
 ### Why Lightroom's fix differs from ours by half a metre — sub-second capture times
 
@@ -467,6 +466,8 @@ person walking slowly, which is what those frames are.
 **Not worth adopting.** The whole effect is sub-metre against a 5 m rule, and buying it
 would mean threading fractional seconds through capture-time extraction and lookup, and
 re-deriving all three fixture hashes. Recorded as an explanation, not a TODO.
+
+### Why the remaining differences stay
 
 **Do not restyle the packet to match.** Every difference is additive or cosmetic and
 none is malformed: the three properties we write and LR does not are all in Adobe's own
@@ -497,14 +498,6 @@ recorded because they are the two a future session is most likely to re-invent:
   `IMG_1234.xmp` when `IMG_1234.CR3` and `IMG_1234.JPG` share a folder. 15.4.1 writes it
   itself, for both CR3 and NEF, on the first save — so we would be adding a field to be
   overwritten by an identical one minutes later.
-
-**The staging tree that produced this is gone** — Terry removed `N:\lr-xmp-compare\` on
-2026-08-01, which is why the recipe is versioned. Nothing is missing; rebuild it from
-[`docs/LIGHTROOM-XMP.md`](docs/LIGHTROOM-XMP.md) when there is a new Lightroom to test.
-
-**When you do rebuild it, note that Lightroom's sidecars in it are Lightroom-created**,
-so constraint 6 binds on them — it follows the file, not the drive, and `N:\` being
-disposable does not exempt them. Claude does not clear that tree; Terry does.
 
 ## The CR3 timezone trap — do not regress this
 
@@ -678,65 +671,6 @@ performance benefit that does not exist.
   `Get-ChildItem -LiteralPath <dir> -Filter *.ext -Force`, and confirm with
   `Test-Path` before believing any count that suggests files vanished.
 
-### Verifying against real files — run every format, every time
-
-**`scripts\verify-fixtures.ps1`.** One command, all three fixtures, ~4 s, non-zero
-exit on any failure. `RawFormat::read_strategy` returns `Streaming` for CR3 and
-`WholeFile` for NEF, so they run through different code in `raw.rs` and passing on
-one says nothing about the other.
-
-**This holds even when you are asked for one format.** "Run the NEF verification"
-means *verify* — run all three and say what was covered. Do not comply narrowly:
-the request is for confidence that the tool works, a single-format pass does not
-supply it, and the other two fixtures cost seconds. Narrowing scope here has been
-raised twice.
-
-**And do not name one fixture as though it were the check.** Terry accepts the
-CLI's tab-enter prompt suggestions, which are drawn from recent conversation — so
-writing "the Sedona NEF verification" produces exactly that suggestion, he accepts
-it, and the narrow framing re-enters the transcript. Call it **the full
-verification** or `verify-fixtures.ps1`; name a fixture only when the subject really
-is that fixture.
-
-**He has asked to be teased when he asks for one — do it.** His instruction: past-
-Terry told you to make fun of today-Terry for falling into a brain trap he left
-himself a note about. So run all three and land a light jab at the recursion, then
-move on. **One line, not a bit**, and do not soften it into nothing: this was
-requested rather than tolerated, and the joke is what makes the reminder stick.
-
-| Fixture | Files | Exercises | Aggregate |
-|---|---|---|---|
-| `cr3-malta` | 40 CR3 | `Streaming`; offset `+00:00`, a no-op | `C2277B569D9058B6` |
-| `cr3-rockies` | 30 CR3 | `Streaming`; offset **`+01:00`, real conversion** | `0D969878B1B7081C` |
-| `nef-sedona` | 30 NEF | `WholeFile`; **no** offset, so the gate must fire | `E7E243F581F1CA93` |
-
-**The harness is versioned; only the photographs are not.** `scripts/` holds the
-script and the per-file source manifests, [`docs/FIXTURES.md`](docs/FIXTURES.md) the
-rationale and rebuild recipe; the 3.7 GB of raws sit in `..\RawGeotag-fixtures\`
-beside the repo. Losing an expected hash would mean re-deriving it from whatever the
-code does at the time, which is worth nothing as a regression check — so those live
-in git. `-CheckSources` re-hashes every raw against its manifest, which answers the
-one question a bare aggregate comparison cannot: did the *fixture* drift, or the code?
-
-**Why three and not two.** The timezone cases differ, and that matters more than
-the file count: **a bug that dropped the EXIF offset would pass Malta and Sedona
-both** — `+00:00` is a no-op and the D3300 has no offset to drop. Measured on
-`_50A0001.CR3`: correct is `51.352357, -116.088200`; read as naive UTC it lands
-`51.717543, -116.507579`, **49.9 km away**, and *still tags*, because that hour-
-shifted time also falls inside the track. No error, no skip, no warning — the
-mantra's exact failure mode, and `cr3-rockies` is the only fixture that sees it.
-
-**Why pinned rather than staged fresh.** These checks used to copy "the first 40
-CR3s of `2025-09-18`", which returns the same 40 files *by luck* — one new file in
-that folder and `C2277B569D9058B6` silently refers to nothing while still appearing
-to pass.
-
-Two ways to get a false result: **leftover `.xmp` files** are skipped rather than
-rewritten and change the aggregate (`verify-fixtures.ps1` clears them for you), and a
-**deliberate change to `xmp.rs`'s packet or to the crate version in `x:xmptk`**
-moves all three hashes legitimately — re-derive and update `verify-fixtures.ps1` and
-the README rather than hunting a regression.
-
 ### The standing NEF fixture on `N:\` — reuse it, do not delete it
 
 `N:\rawgeotag-bench\{j1,j2,j4,j8}` — **four disjoint sets of 200 Nikon D3300 NEFs,
@@ -805,14 +739,10 @@ targets no path. `/add-dir N:\` grants it.
 
 ## Measured behavior worth not rediscovering
 
-> **This section is the canonical record, and `README.md`'s *Performance* section is
-> a user-facing summary drawn from it.** `docs/PLAN.md` deliberately carries none of
-> these numbers and says so. **Correcting a figure here means correcting README too**
-> — it restates the CR3 SMB table, the NEF SMB and NVMe sweeps, and the GPX parse
-> timings. They agree today; that was checked on 2026-08-02, and the one thing found
-> out of step was a *caveat* rather than a number (the sweep table's methodology
-> line, since fixed). Caveats are what drift here, so carry them across, not just
-> the digits.
+> **Canonical record.** `README.md`'s *Performance* section is a user-facing summary
+> of these numbers and `docs/PLAN.md` deliberately carries none, so correcting a figure
+> here means correcting README too — **and carrying the caveat across, not just the
+> digit.** A stale caveat is what drifted last time, not a stale number.
 
 **`--jobs` defaults to 2, deliberately, and that is not a typo.** The optimum depends
 on the storage, and the two cases point in opposite directions:
@@ -843,9 +773,9 @@ parallelizing only ~3x and plateauing near 4 threads; that measured RAM, not sto
 Always evict or use untouched data before quoting read-scaling numbers.
 
 **GPX parsing is a serial-feeling cost that turned out to be worth parallelizing.**
-Seven tracks of one trip (15.4 MB, 75,728 points) took ~700 ms to parse — comparable
-to an entire local 3,883-file run — and all of it lands before a single photo is
-touched. `Track::load` now parses the files with `par_iter`: **658 ms at `-j 1`,
+Seven tracks of one trip (15.4 MB, 75,728 points) cost the better part of a second —
+comparable to an entire local 3,883-file run — and all of it lands before a single
+photo is touched. `Track::load` now parses the files with `par_iter`: **658 ms at `-j 1`,
 390 at the `-j 2` default, 269 at `-j 4`, 215 at `-j 8`.** It scales with *file
 count*, not total bytes — the floor is the largest single file, ~170 ms for a 4 MB
 track. The slowness is `xml-rs`, which the `gpx` crate uses internally; quick-xml
@@ -962,3 +892,27 @@ when the *other* limit shows the subject was barely moving, and say so when repo
 tells a future session nothing about how to write or review code, and is exactly the
 kind of hand-maintained number that went stale three times as a test count. The Status
 section records verification of *correctness*; volume is not evidence of that.
+
+## Dependency versions: check crates.io, never recall from memory
+
+**The full process is [`docs/UPDATING.md`](docs/UPDATING.md)** — cadence, the
+`cargo outdated` column reading, the verification sequence, and what to do when a
+fixture hash moves after a bump (it is a regression, and the usual "re-derive the
+hash" advice inverts). What follows here is only the part that has bitten twice.
+
+The version numbers in [`docs/PLAN.md`](docs/PLAN.md)'s dependency table are
+**indicative, not authoritative**. Before any of them lands in `Cargo.toml` — a new
+dep, or a bump — confirm the current release with `cargo search <crate> --limit 1`.
+
+This is not hypothetical. `indicatif` was pinned at `"0.17"` because that version was
+familiar, not because it was current; 0.18 had already shipped six patch releases by
+then. It sat stale until a human noticed.
+
+What makes this bite is Cargo's `0.x` rule: for a pre-1.0 crate the **minor** is the
+breaking-change position, so `"0.17"` means `>=0.17.0, <0.18.0` and *can never*
+resolve to 0.18. `cargo update` respects that ceiling and reports "Locking 0
+packages" while three minor releases behind — reassuring and wrong. **A clean `cargo
+update` is not evidence of being current.** Only crates.io can tell you.
+
+`1.x` deps are mostly self-correcting (`anyhow = "1"` keeps picking up 1.0.x), so the
+risk concentrates in the `0.x` crates: `gpx`, `chrono`, `time`, `indicatif`.
