@@ -126,19 +126,18 @@ so it chains: `cargo test && .\scripts\verify-fixtures.ps1`.
 Three things worth knowing before the first run:
 
 - **The 3.7 GB of raw photos are not in git** — only the script and its per-file
-  manifests are. The script looks for the tree as a sibling of the checkout, so
-  **each checkout needs its own copy** and both on this machine have one:
-  `C:\Users\TDO-XPS15-2024\Claude\RawGeotag-fixtures` and
-  `C:\Travel\RawGeotag-fixtures`. The default therefore works from either, with no
-  arguments. From a checkout with no tree beside it, point at one that has:
+  manifests are. The script looks for the tree as a **sibling of the checkout**, so
+  the default needs no arguments as long as one is there. From a checkout with no
+  tree beside it, point at one that has:
 
   ```
-  .\scripts\verify-fixtures.ps1 -FixtureRoot C:\Users\TDO-XPS15-2024\Claude\RawGeotag-fixtures
+  .\scripts\verify-fixtures.ps1 -FixtureRoot <path-to-a-RawGeotag-fixtures-tree>
   ```
 
-  The two copies are independent, so **a rebuilt or corrected fixture has to be
-  re-copied to the other**, or the same code will produce different aggregates in the
-  two checkouts. `-CheckSources` is what tells you they have diverged.
+  **A second checkout means a second fixture tree, and the two are independent** — a
+  rebuilt or corrected fixture has to be re-copied to the other, or the same code
+  produces different aggregates in the two of them. `-CheckSources` is what tells you
+  they have diverged, and is worth running after any copy.
   [`FIXTURES.md`](FIXTURES.md) has the rebuild recipe if a tree is ever lost.
 - **It deletes `.xmp` files inside the fixture directories**, before and after each run.
   That is required — a leftover sidecar is *skipped* rather than rewritten and would
@@ -172,11 +171,14 @@ Bisect the update — revert `Cargo.lock`, then re-apply one crate at a time wit
 happened on a date rather than a thing that drifts. Commit it on its own, with the
 before-and-after versions in the message, so a later bisect has something to aim at.
 
-## Two checkouts on this machine
+## One checkout on this machine
 
-There are two clones here: `C:\Users\TDO-XPS15-2024\Claude\RawGeotag` and
-`C:\Travel\RawGeotag`. **Updating one leaves the other stale**, and the second will
-report the same rows from `cargo outdated` as though nothing had been done. Update
-either one, push, then `git pull` in the other and rebuild there too — the release
-binary is per-checkout, so the one you actually travel with needs its own
-`cargo build --release`.
+`C:\Travel\RawGeotag` is the single source of truth. There used to be a second clone
+under `C:\Users\...\Claude\`; it was removed on 2026-08-02 along with its own fixture
+tree, because keeping two in step was pure overhead for one maintainer.
+
+**If a second one is ever created, updating one leaves the other stale** — and the
+stale one reports the same rows from `cargo outdated` as though nothing had been done,
+which is what makes it worth writing down. Update either, push, then `git pull` in the
+other and rebuild there too: the release binary is per-checkout, as is the fixture
+tree beside it.
