@@ -824,8 +824,28 @@ on the storage, and the two cases point in opposite directions:
 
 | | read phase | best `-j` | why |
 |---|---|---|---|
-| **Local NVMe** | ~0.3 s / 3,883 CR3s — nearly free | **2** | run is write-bound; NTFS serializes creates *within one directory*, so threads contend — but see the sidecar-writes section: a recursive run spanning many folders lifts this |
+| **Local NVMe, warm** | ~0.3 s / 3,883 CR3s — nearly free | **2** | run is write-bound; NTFS serializes creates *within one directory*, so threads contend — but see the sidecar-writes section: a recursive run spanning many folders lifts this |
+| **Local NVMe, first touch** | **dominates** — 20-48 s at `-j 2` | **16-20** | the read is a real one; threads hide it exactly as they do over SMB |
 | **SMB / network** | dominates the run | **16-20** | latency-bound; threads keep requests in flight |
+
+**The local row used to say `2` unconditionally, and that was a warm-only finding.**
+Measured 2026-08-02 on the Rockies day, two sets freshly staged from `N:\` so neither
+had ever been read: **`-j 20` took 5.8 s against `-j 2` at 48.6 s — 8.4x.** The `-j 20`
+set was deliberately the *cache-disadvantaged* one (staged first, so the second set's
+188 GB evicted it from RAM), which means the confound can only have worked against the
+winner. Direction is certain.
+
+**Magnitude is not.** Cold `-j 2` measured 20.5 s twice earlier the same day and 47.6 s
+in this pair, so the baseline itself moved 2.3x — tracking a matching drop in copy
+throughput, which points at the SSD's sustained-write state rather than at the tool.
+Against the best-case baseline the win is 3.5x, against the worst 8.4x. Quote it as
+"several fold", not as a number.
+
+**What this means for the default.** `--jobs 2` is tuned for the warm re-run, which is
+the *benchmark* case, not the case a photographer is in — a real import reads files the
+machine has never seen. Left at 2 for now because changing a default is Terry's call,
+not a measurement's; raised here so the question is on the record rather than
+rediscovered.
 
 **Everything in this section was measured on CR3 and holds for `Streaming` formats
 only.** A `WholeFile` format moves the bottleneck from latency to bandwidth and the

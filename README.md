@@ -270,11 +270,17 @@ cores, creating 2,394 sidecars from scratch:
 | Full run | 1.9 s | **1.7 s** | 1.9 s | 1.9 s |
 
 **Those are re-runs — budget for the first one instead.** The same 3,883 files, freshly
-copied onto the machine and run for the first time, take **~20 s**: a real read of data
-the OS has never seen, plus whatever your malware scanner does with 188 GB of new
+copied onto the machine and run for the first time, take **20-48 s**: a real read of
+data the OS has never seen, plus whatever your malware scanner does with 188 GB of new
 files. A second run over the same files drops to ~1.4 s. That first number is still
 small next to the 7-14 minutes of copying the day onto the disk to begin with, which is
 where an import's time actually goes.
+
+**And on that first run, raise `-j` even though the files are local.** Measured on two
+freshly-staged copies of the same shoot, neither previously read: `-j 20` finished in
+**5.8 s** against **48.6 s** at `-j 2`. Once the read is real rather than served from
+RAM, local storage behaves like the network case below — so the table above, and the
+default of 2, describe a *warm* run. For a fresh import, `-j 16` or higher.
 
 The EXIF read is nearly free locally (~0.3 s for all 3,883 files, since for CR3
 nom-exif seeks within the container rather than reading whole 30 MB files), so the
