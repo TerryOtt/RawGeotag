@@ -83,6 +83,37 @@ improvement if the surviving message is the considered one.
 None of this touches the maintainer's workflow, which bypasses pull requests
 entirely. It governs what arrives from anyone else.
 
+### A merged branch is deleted immediately
+
+**Standing order: the moment a branch is merged, it is gone.** A merged branch that
+lingers is a broken window of the housekeeping kind — after a few of them nobody can
+tell at a glance which branches are live, and the signal that goes up is that nothing
+here is tended.
+
+`delete_branch_on_merge` is **on**, so GitHub deletes the head branch automatically
+the instant a pull request merges. That is the forced part, and it needs no
+discipline from anyone.
+
+**Two cases it cannot reach, which are therefore standing orders rather than rules:**
+
+- **Branches on a fork.** GitHub deletes branches in *this* repository; a contributor
+  working from their own fork owns that branch and only they can remove it. Delete it
+  after your PR merges.
+- **Branches that are never merged.** An abandoned spike, or a PR closed without
+  merging, leaves the branch behind and no setting fires. Delete it when you abandon
+  it — the point at which you know it is dead is the point at which you are the only
+  person who knows.
+
+Locally, `git branch -d <name>` refuses anything not merged, which is the safe form;
+`git fetch --prune` clears remote-tracking refs for branches GitHub has already
+removed.
+
+**Deliberately not automated:** a scheduled job that reaps stale branches. It is
+standing infrastructure with a permanent carrying cost, aimed at a repository that
+has had exactly one branch its whole life. That is the same trade declined for the
+Lightroom plugin and for hosting the fixtures — if branch clutter ever becomes real,
+revisit it then.
+
 **The first is a no-op today and that is the point.** The repository is public with
 one collaborator, so a non-collaborator already cannot push at all — GitHub refuses
 it and their only route is fork-and-PR. The ruleset exists so that stays true the
