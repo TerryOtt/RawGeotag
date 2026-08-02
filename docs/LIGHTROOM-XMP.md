@@ -143,9 +143,11 @@ Get-ChildItem -LiteralPath "$src\nef-sedona" -Filter *.NEF -Force | Copy-Item -D
 Copy-Item "$src\gpx\malta-2025-09-18.gpx"  "$root\cr3-malta"
 Copy-Item "$src\gpx\sedona-2019-01-19.gpx" "$root\nef-sedona"
 
-# Our reference sidecars, then moved out of the import folders.
-& $rg --no-progress "$root\cr3-malta" cr3 "$root\cr3-malta\malta-2025-09-18.gpx"
-& $rg --no-progress --utc-offset +0000 "$root\nef-sedona" nef "$root\nef-sedona\sedona-2019-01-19.gpx"
+# Our reference sidecars, then moved out of the import folders. (No extension
+# argument: it was removed 2026-08-02, and these lines carried a stale `cr3` /
+# `nef` between DIR and the track until a review caught them failing.)
+& $rg --no-progress "$root\cr3-malta" "$root\cr3-malta\malta-2025-09-18.gpx"
+& $rg --no-progress --utc-offset +0000 "$root\nef-sedona" "$root\nef-sedona\sedona-2019-01-19.gpx"
 foreach ($s in @("cr3-malta","nef-sedona")) {
     Get-ChildItem -LiteralPath "$root\$s" -Filter *.xmp -Force |
         Move-Item -Destination "$root\rawgeotag-reference\$s" -Force

@@ -193,7 +193,7 @@ hand-maintained total is exactly the number that goes stale, and did.
 | `default_value_t = GapLimits::DEFAULT_GAP_SECONDS` replaced by a bare literal | `the_cli_gap_default_matches_the_shipped_limit` |
 | `gate()` no longer sorts the zoneless paths it returns | `the_gate_reports_every_zoneless_file_in_sorted_order` |
 | `parse_offset` reverts to stripping colons wherever they appear | `colons_are_only_accepted_between_the_hours_and_the_minutes` |
-| the directory walk filters on a hardcoded format rather than the run's | `a_run_for_one_format_does_not_collect_another` |
+| the directory walk filters on a hardcoded format rather than the run's | `a_run_for_one_format_does_not_collect_another` — retired 2026-08-02 with the extension argument, whose removal made the mutation inexpressible; `each_format_alone_behaves_as_the_old_extension_argument_did` holds the per-format ground now |
 | `tally_writes` collects per-file positions regardless of `--verbose` | `per_file_positions_are_collected_only_when_verbose` |
 | `!settings.force` loses its `!`, so an ordinary run overwrites sidecars | `an_existing_sidecar_is_skipped_and_left_untouched_without_force` |
 | `settings.dry_run` inverted, so `--dry-run` writes and a real run does not | `dry_run_reports_a_tag_but_creates_no_file` |
