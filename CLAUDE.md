@@ -925,7 +925,7 @@ when the *other* limit shows the subject was barely moving, and say so when repo
   and the broad track only fills what is left.
 - **GPX filenames lie.** Seen in the wild: a file named `2025-09-21` holding 09-24
   data, a `2015` typo for `2025`, and an en dash instead of a hyphen. Read the span,
-  never the name: `rawgeotag --verbose --dry-run <empty-dir> cr3 <gpx>` prints it and
+  never the name: `rawgeotag --verbose --dry-run <empty-dir> <gpx>` prints it and
   exits before touching a photo.
 - A track can be 8-9 MB on a single line. `grep -oE` over that on an SMB share is
   unusably slow — copy it local first, or parse it as XML.

@@ -134,18 +134,6 @@ impl RawFormat {
             .any(|known| known.eq_ignore_ascii_case(ext))
     }
 
-    /// Resolve a user-supplied extension, tolerating case and one leading dot.
-    ///
-    /// `strip_prefix` rather than `trim_start_matches`, which would strip a whole
-    /// run of them and accept `"...cr3"`.
-    pub fn from_extension(ext: &str) -> Option<Self> {
-        let ext = ext.strip_prefix('.').unwrap_or(ext);
-        Self::ALL
-            .iter()
-            .copied()
-            .find(|format| format.matches_extension(ext))
-    }
-
     /// Every supported extension, for `--help` and for the error shown when an
     /// unsupported one is given.
     pub fn supported_extensions() -> String {
@@ -160,12 +148,17 @@ impl RawFormat {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+    use std::path::Path;
+
     use super::*;
 
-    /// Every declared extension must round-trip, in any case. This is the one gap
-    /// the compiler cannot catch: a new variant with no table entry still builds.
+    /// Every declared extension must be claimed by its own format and by no other,
+    /// in any case. This is the one gap the compiler cannot catch: a new variant
+    /// with no table entry, or one that collides with an existing extension, still
+    /// builds.
     #[test]
-    fn every_declared_extension_round_trips() {
+    fn every_declared_extension_is_claimed_by_exactly_one_format() {
         for format in RawFormat::ALL {
             assert!(
                 !format.extensions().is_empty(),
@@ -173,12 +166,14 @@ mod tests {
             );
 
             for ext in format.extensions() {
-                assert_eq!(RawFormat::from_extension(ext), Some(*format));
-                assert_eq!(
-                    RawFormat::from_extension(&ext.to_uppercase()),
-                    Some(*format)
-                );
-                assert_eq!(RawFormat::from_extension(&format!(".{ext}")), Some(*format));
+                let claimants: Vec<RawFormat> = RawFormat::ALL
+                    .iter()
+                    .copied()
+                    .filter(|f| f.matches_extension(ext))
+                    .collect();
+                assert_eq!(claimants, [*format], "{ext:?} is not uniquely {format:?}");
+
+                assert!(format.matches_extension(&ext.to_uppercase()));
             }
         }
     }
@@ -221,19 +216,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn unknown_extension_is_rejected() {
-        assert_eq!(RawFormat::from_extension("jpg"), None);
-        assert_eq!(RawFormat::from_extension(""), None);
-    }
-
-    #[test]
-    fn only_one_leading_dot_is_tolerated() {
-        // `trim_start_matches` would strip the whole run and accept these.
-        assert_eq!(RawFormat::from_extension("..cr3"), None);
-        assert_eq!(RawFormat::from_extension("...nef"), None);
-    }
-
     /// The rule the directory walk filters on, so it is worth pinning
     /// independently of `from_extension`.
     #[test]
@@ -249,7 +231,64 @@ mod tests {
     /// flipped value fails every file of that format at runtime.
     #[test]
     fn read_strategies_are_the_ones_verified_against_real_files() {
-        assert_eq!(RawFormat::Cr3.read_strategy(), ReadStrategy::Streaming);
-        assert_eq!(RawFormat::Nef.read_strategy(), ReadStrategy::WholeFile);
+        for format in RawFormat::ALL {
+            // Exhaustive on purpose. Adding a `RawFormat` without a line here is a
+            // **build error**, not a test someone forgot to extend — which is the
+            // only way this stays in lockstep without relying on diligence. Do not
+            // add a `_ =>` arm; that would trade the guarantee for nothing.
+            let verified_against_a_real_file_of_that_format = match format {
+                RawFormat::Cr3 => ReadStrategy::Streaming,
+                RawFormat::Nef => ReadStrategy::WholeFile,
+            };
+
+            assert_eq!(
+                format.read_strategy(),
+                verified_against_a_real_file_of_that_format,
+                "{format:?}"
+            );
+        }
+    }
+
+    /// **A format is not supported until it has a fixture of its own.**
+    ///
+    /// This does not consult a list that someone has to remember to update — it
+    /// reads the per-file manifests actually committed under
+    /// `scripts/fixture-manifests/` and checks that some real file carries each
+    /// format's extension. Add a `RawFormat` without adding a fixture and this
+    /// fails, naming what is missing.
+    ///
+    /// NEF is why: it parses through one `MediaSource` constructor and not the
+    /// other, which no unit test and no crate documentation would have revealed.
+    #[test]
+    fn every_format_has_a_fixture_of_its_own() {
+        let manifests = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/fixture-manifests");
+        let mut fixture_extensions: Vec<String> = Vec::new();
+
+        for entry in fs::read_dir(&manifests).expect("the manifest directory is committed") {
+            let path = entry.expect("a manifest entry").path();
+            let listing = fs::read_to_string(&path).expect("a readable manifest");
+            for line in listing.lines() {
+                // "<sha256>  <filename>"
+                let Some(name) = line.split_whitespace().nth(1) else {
+                    continue;
+                };
+                if let Some(extension) = Path::new(name).extension().and_then(|e| e.to_str()) {
+                    fixture_extensions.push(extension.to_ascii_lowercase());
+                }
+            }
+        }
+
+        for format in RawFormat::ALL {
+            assert!(
+                format
+                    .extensions()
+                    .iter()
+                    .any(|wanted| fixture_extensions.iter().any(|have| have == wanted)),
+                "{format:?} has no fixture: nothing under scripts/fixture-manifests/ carries \
+                 any of {:?}. A format is not supported until a real file of it is in the \
+                 verification set — see docs/FIXTURES.md.",
+                format.extensions()
+            );
+        }
     }
 }

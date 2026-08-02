@@ -22,6 +22,7 @@ mod raw;
 mod track;
 mod xmp;
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
@@ -66,14 +67,14 @@ const DEFAULT_JOBS: usize = 2;
                   Several GPX files may be given for a day split across separate recordings. \
                   They are merged, but the seam between two files is never interpolated \
                   across, and files whose time ranges overlap are rejected before anything \
-                  is written — run those as separate passes instead."
+                  is written — run those as separate passes instead.\n\n\
+                  Every supported raw format under DIR is tagged in one pass — there is \
+                  no extension to name. Files of a format this tool does not read are \
+                  counted and reported rather than passed over in silence."
 )]
 struct Args {
     /// Parent directory, searched recursively
     dir: PathBuf,
-
-    /// Raw extension: "cr3" or "nef" (case-insensitive, leading "." tolerated)
-    ext: String,
 
     /// Path to the GPX track file. Repeat for a day split across several tracks
     #[arg(required = true, num_args = 1..)]
@@ -133,14 +134,6 @@ enum Outcome {
 fn run() -> Result<Outcome> {
     let args = Args::parse();
 
-    let format = RawFormat::from_extension(&args.ext).with_context(|| {
-        format!(
-            "unsupported raw extension {:?}; supported: {}",
-            args.ext,
-            RawFormat::supported_extensions()
-        )
-    })?;
-
     if args.jobs == 0 {
         bail!("--jobs must be at least 1");
     }
@@ -166,22 +159,34 @@ fn run() -> Result<Outcome> {
         );
     }
 
-    // Named from the format rather than from whatever the user typed, because the
-    // walk matches every extension the format declares, not just that one.
-    let extensions = format.extensions().join(", ");
-    let (paths, walk_errors) = collect_paths(&args.dir, format)?;
-    if paths.is_empty() {
-        println!("Scanned 0 .{extensions} files under {}", args.dir.display());
+    let Walk {
+        files,
+        ignored,
+        errors: walk_errors,
+    } = collect_paths(&args.dir)?;
+
+    if files.is_empty() {
+        println!("Scanned 0 raw files under {}", args.dir.display());
+        // The only signal that a whole shoot was invisible rather than absent.
+        if !ignored.is_empty() {
+            println!(
+                "Ignored {}   {}  (supported: {})",
+                count(ignored.values().sum::<usize>()),
+                describe_ignored(&ignored),
+                RawFormat::supported_extensions()
+            );
+        }
         return Ok(Outcome::Clean);
     }
-    let scanned = paths.len();
+    let scanned = files.len();
+    let by_format = tally_formats(&files);
 
     // ---- Phase A: extract capture times -------------------------------------
-    let progress = progress_bar(paths.len(), args.no_progress, "reading capture times");
-    let extractions: Vec<Extraction> = paths
+    let progress = progress_bar(files.len(), args.no_progress, "reading capture times");
+    let extractions: Vec<Extraction> = files
         .par_iter()
-        .map_init(MediaParser::new, |parser, path| {
-            let extraction = extract(parser, path, format, args.utc_offset);
+        .map_init(MediaParser::new, |parser, file| {
+            let extraction = extract(parser, &file.path, file.format, args.utc_offset);
             progress.inc(1);
             extraction
         })
@@ -240,7 +245,8 @@ fn run() -> Result<Outcome> {
     }
 
     print_summary(&Summary {
-        extension: &extensions,
+        by_format: &by_format,
+        ignored: &ignored,
         scanned,
         tagged: tally.tagged,
         outside_track: tally.outside_track,
@@ -555,21 +561,53 @@ fn tally_writes(results: Vec<Written>, verbose: bool) -> Tally {
 /// Materializing into a `Vec` before parallelizing gives rayon contiguous slices
 /// to split, which load-balances far better than bridging a sequential iterator.
 /// It also yields an exact denominator for the progress bar.
-fn collect_paths(dir: &Path, format: RawFormat) -> Result<(Vec<PathBuf>, Vec<String>)> {
+/// One raw to process, paired with the format that claims it.
+///
+/// The format travels with the path because a single run now spans all of them:
+/// `read_strategy` and `capture_tags` differ per format, so the choice is made per
+/// file rather than once for the whole run.
+struct RawFile {
+    path: PathBuf,
+    format: RawFormat,
+}
+
+/// What the walk found.
+struct Walk {
+    files: Vec<RawFile>,
+    /// Extensions no format claims, and how many files carried each. Reported
+    /// rather than dropped: with no extension argument to reject, this is the only
+    /// thing that tells someone their ARW files were never going to be read.
+    ignored: BTreeMap<String, usize>,
+    errors: Vec<String>,
+}
+
+/// Walk the tree, collecting every raw of every supported format.
+///
+/// Materializing into a `Vec` before parallelizing gives rayon contiguous slices
+/// to split, which load-balances far better than bridging a sequential iterator.
+/// It also yields an exact denominator for the progress bar.
+fn collect_paths(dir: &Path) -> Result<Walk> {
     if !dir.is_dir() {
         bail!("{} is not a directory", dir.display());
     }
 
-    let mut paths = Vec::new();
+    let mut files = Vec::new();
+    let mut ignored: BTreeMap<String, usize> = BTreeMap::new();
     let mut errors = Vec::new();
 
     for entry in WalkDir::new(dir) {
         match entry {
-            Ok(entry) if entry.file_type().is_file() => {
-                if matches_format(entry.path(), format) {
-                    paths.push(entry.into_path());
+            Ok(entry) if entry.file_type().is_file() => match format_of(entry.path()) {
+                Some(format) => files.push(RawFile {
+                    path: entry.into_path(),
+                    format,
+                }),
+                None => {
+                    if let Some(extension) = ignorable_extension(entry.path()) {
+                        *ignored.entry(extension).or_default() += 1;
+                    }
                 }
-            }
+            },
             Ok(_) => {}
             Err(error) => errors.push(error.to_string()),
         }
@@ -580,17 +618,36 @@ fn collect_paths(dir: &Path, format: RawFormat) -> Result<(Vec<PathBuf>, Vec<Str
     // worker a contiguous run of one directory, which is what lets a recursive run
     // parallelize its writes across NTFS directory locks. Deleting it breaks
     // nothing that fails loudly.
-    paths.sort_unstable();
-    Ok((paths, errors))
+    files.sort_unstable_by(|a, b| a.path.cmp(&b.path));
+    Ok(Walk {
+        files,
+        ignored,
+        errors,
+    })
 }
 
-/// Filtered against the format's own extension table rather than against the
-/// string the user typed, so a format declaring more than one extension finds
-/// files under all of them.
-fn matches_format(path: &Path, format: RawFormat) -> bool {
-    path.extension()
-        .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| format.matches_extension(ext))
+/// The format that claims this file, if any.
+///
+/// Every format is tried, because a run is no longer scoped to one: a directory
+/// holding both CR3 and NEF has both tagged in a single pass, each through its own
+/// read strategy.
+fn format_of(path: &Path) -> Option<RawFormat> {
+    let extension = path.extension().and_then(|ext| ext.to_str())?;
+    RawFormat::ALL
+        .iter()
+        .copied()
+        .find(|format| format.matches_extension(extension))
+}
+
+/// The extension to count this unreadable file under, lowercased so `.ARW` and
+/// `.arw` are one line in the report.
+///
+/// `.xmp` is excluded because those are this tool's own output; a re-run would
+/// otherwise report its previous results back as ignored files. Extensionless
+/// files are excluded because there is nothing useful to name them by.
+fn ignorable_extension(path: &Path) -> Option<String> {
+    let extension = path.extension()?.to_str()?.to_ascii_lowercase();
+    (extension != "xmp").then_some(extension)
 }
 
 fn progress_bar(len: usize, hidden: bool, message: &'static str) -> ProgressBar {
@@ -609,7 +666,12 @@ fn progress_bar(len: usize, hidden: bool, message: &'static str) -> ProgressBar 
 }
 
 struct Summary<'a> {
-    extension: &'a str,
+    /// Counts per format, in `RawFormat::ALL` order. Printed only when a run spans
+    /// more than one — a single-format run has nothing to disambiguate, and the
+    /// mixed case is the one worth making visible.
+    by_format: &'a [(RawFormat, usize)],
+    /// Extensions the walk passed over, and how many of each.
+    ignored: &'a BTreeMap<String, usize>,
     scanned: usize,
     tagged: usize,
     outside_track: usize,
@@ -620,6 +682,55 @@ struct Summary<'a> {
     elapsed: f64,
     threads: usize,
     dry_run: bool,
+}
+
+/// Count the raws found, per format, in `RawFormat::ALL` order. Formats with no
+/// files are omitted.
+fn tally_formats(files: &[RawFile]) -> Vec<(RawFormat, usize)> {
+    RawFormat::ALL
+        .iter()
+        .copied()
+        .filter_map(|format| {
+            let n = files.iter().filter(|f| f.format == format).count();
+            (n > 0).then_some((format, n))
+        })
+        .collect()
+}
+
+/// `"   (500 cr3, 30 nef)"`, or empty for a single-format run.
+///
+/// Nothing is gained by telling someone their 40 CR3s were 40 CR3s. The breakdown
+/// exists for the case a run spans formats, which is the one that might not have
+/// been intended.
+fn describe_formats(by_format: &[(RawFormat, usize)]) -> String {
+    if by_format.len() < 2 {
+        return String::new();
+    }
+    let parts: Vec<String> = by_format
+        .iter()
+        .map(|(format, n)| format!("{} {}", count(*n), format.extensions().join("/")))
+        .collect();
+    format!("   ({})", parts.join(", "))
+}
+
+/// `".arw 418, .jpg 42"`, busiest first, and truncated so a messy directory cannot
+/// push the summary off the screen.
+fn describe_ignored(ignored: &BTreeMap<String, usize>) -> String {
+    const SHOWN: usize = 3;
+
+    let mut sorted: Vec<(&String, &usize)> = ignored.iter().collect();
+    // Count descending, then extension, so the order is stable for equal counts.
+    sorted.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
+
+    let mut parts: Vec<String> = sorted
+        .iter()
+        .take(SHOWN)
+        .map(|(ext, n)| format!(".{ext} {}", count(**n)))
+        .collect();
+    if sorted.len() > SHOWN {
+        parts.push(format!("+{} more", count(sorted.len() - SHOWN)));
+    }
+    parts.join(", ")
 }
 
 /// How many files were not tagged, and the breakdown by reason in report order.
@@ -660,10 +771,18 @@ fn print_summary(summary: &Summary) {
     // seven-figure count still fits, and nobody has that many raws in one tree.
     println!();
     println!(
-        "Scanned  {:>7} .{} files",
+        "Scanned  {:>7} raw files{}",
         count(summary.scanned),
-        summary.extension
+        describe_formats(summary.by_format)
     );
+    if !summary.ignored.is_empty() {
+        println!(
+            "Ignored  {:>7}   {}  (supported: {})",
+            count(summary.ignored.values().sum::<usize>()),
+            describe_ignored(summary.ignored),
+            RawFormat::supported_extensions()
+        );
+    }
     println!(
         "Tagged   {:>7}{}",
         count(summary.tagged),
@@ -882,40 +1001,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn extension_matching_ignores_case() {
-        assert!(matches_format(
-            Path::new("/photos/IMG_1234.CR3"),
-            RawFormat::Cr3
-        ));
-        assert!(matches_format(
-            Path::new("/photos/IMG_1234.cr3"),
-            RawFormat::Cr3
-        ));
-        assert!(!matches_format(
-            Path::new("/photos/IMG_1234.jpg"),
-            RawFormat::Cr3
-        ));
-        assert!(!matches_format(
-            Path::new("/photos/IMG_1234"),
-            RawFormat::Cr3
-        ));
-    }
-
-    /// One format's files must not be picked up by a run for another, which is
-    /// the property the walk gets from filtering on the format's own table.
-    #[test]
-    fn a_run_for_one_format_does_not_collect_another() {
-        assert!(!matches_format(
-            Path::new("/photos/DSC_0001.NEF"),
-            RawFormat::Cr3
-        ));
-        assert!(matches_format(
-            Path::new("/photos/DSC_0001.NEF"),
-            RawFormat::Nef
-        ));
-    }
-
     // ---- write_sidecar: the branches that decide whether a file is touched ----
     //
     // `write_sidecar` explains the check order and why the two flags do not compose
@@ -1092,8 +1177,13 @@ mod tests {
         no_time: usize,
         failed: usize,
     ) -> Summary<'static> {
+        const NO_FORMATS: &[(RawFormat, usize)] = &[];
+        static NOTHING_IGNORED: std::sync::LazyLock<BTreeMap<String, usize>> =
+            std::sync::LazyLock::new(BTreeMap::new);
+
         Summary {
-            extension: "cr3",
+            by_format: NO_FORMATS,
+            ignored: &NOTHING_IGNORED,
             scanned: 100,
             tagged: 7,
             outside_track: outside,
@@ -1142,7 +1232,146 @@ mod tests {
         assert_eq!(reasons, ["1,489 in track gap"]);
     }
 
-    // ---- collect_paths -------------------------------------------------------
+    // ---- the walk: which formats a run picks up ------------------------------
+    //
+    // There is no extension argument any more, so the walk decides what a run
+    // touches. The three cases that matter are none, one and several — the middle
+    // one because it must behave exactly as the old single-format run did, and the
+    // last because it is the new capability.
+
+    fn walk_over(names: &[&str]) -> (tempfile::TempDir, Walk) {
+        let dir = tempfile::tempdir().expect("creating the scratch directory");
+        for name in names {
+            std::fs::write(dir.path().join(name), "x").expect("creating a test file");
+        }
+        let walk = collect_paths(dir.path()).expect("the directory exists");
+        (dir, walk)
+    }
+
+    fn found(walk: &Walk) -> Vec<String> {
+        walk.files
+            .iter()
+            .map(|f| f.path.file_name().unwrap().to_string_lossy().into_owned())
+            .collect()
+    }
+
+    #[test]
+    fn a_directory_with_no_supported_raws_finds_nothing_and_says_what_it_passed_over() {
+        let (_dir, walk) = walk_over(&["a.arw", "b.ARW", "c.dng", "notes.txt"]);
+
+        assert!(walk.files.is_empty());
+        // Case-folded, so .arw and .ARW are one line rather than two.
+        assert_eq!(walk.ignored.get("arw"), Some(&2));
+        assert_eq!(walk.ignored.get("dng"), Some(&1));
+        assert_eq!(walk.ignored.get("txt"), Some(&1));
+    }
+
+    /// **Every format alone, not just the first one.** A CR3-only directory and a
+    /// NEF-only directory are different cases: they take different `read_strategy`
+    /// paths, and NEF is the one whose body records no timezone, so a run of each
+    /// is what the removed extension argument used to guarantee.
+    ///
+    /// # Adding a format
+    ///
+    /// This test needs no edit — it is driven off `RawFormat::ALL`, so a new variant
+    /// gets its own single-format walk case automatically. **Three things do not
+    /// follow automatically, and a format is not supported until all three exist:**
+    ///
+    /// 1. A row in `read_strategies_are_the_ones_verified_against_real_files`
+    ///    (`format.rs`). That test is hand-written per format on purpose — the
+    ///    compiler cannot tell a `Streaming`/`WholeFile` choice is wrong, and the
+    ///    wrong one fails every file of that format at runtime.
+    /// 2. A fixture of its own, and an aggregate in `verify-fixtures.ps1`. NEF
+    ///    failed in a way no unit test and no crate documentation revealed; see
+    ///    `docs/FIXTURES.md`.
+    /// 3. A capture-tag pairing verified against a *real file of that format*, not
+    ///    assumed from the spec. See the CR3 timezone trap in `CLAUDE.md`.
+    ///
+    /// The support matrix is `RawFormat::ALL` plus those three; this test only
+    /// covers the first column of it.
+    #[test]
+    fn each_format_alone_behaves_as_the_old_extension_argument_did() {
+        for format in RawFormat::ALL {
+            let ext = format.extensions()[0];
+            let names = [
+                format!("IMG_0002.{}", ext.to_uppercase()),
+                format!("IMG_0001.{ext}"),
+                "notes.txt".to_string(),
+            ];
+            let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+            let (_dir, walk) = walk_over(&refs);
+
+            assert_eq!(walk.files.len(), 2, "{format:?}");
+            assert!(walk.files.iter().all(|f| f.format == *format), "{format:?}");
+            assert_eq!(
+                found(&walk),
+                [
+                    format!("IMG_0001.{ext}"),
+                    format!("IMG_0002.{}", ext.to_uppercase())
+                ],
+                "{format:?}"
+            );
+            // A single-format run prints no breakdown: telling someone their two
+            // CR3s were two CR3s is noise.
+            assert_eq!(
+                describe_formats(&tally_formats(&walk.files)),
+                "",
+                "{format:?}"
+            );
+            assert_eq!(walk.ignored.get("txt"), Some(&1), "{format:?}");
+        }
+    }
+
+    #[test]
+    fn a_mixed_directory_picks_up_every_supported_format_in_one_pass() {
+        let (_dir, walk) = walk_over(&["DSC_0001.NEF", "IMG_0001.CR3", "IMG_0002.cr3", "x.arw"]);
+
+        assert_eq!(walk.files.len(), 3);
+        assert_eq!(
+            tally_formats(&walk.files),
+            [(RawFormat::Cr3, 2), (RawFormat::Nef, 1)]
+        );
+        // The mix is the case worth surfacing, so this one does get a breakdown.
+        assert_eq!(
+            describe_formats(&tally_formats(&walk.files)),
+            "   (2 cr3, 1 nef)"
+        );
+        assert_eq!(walk.ignored.get("arw"), Some(&1));
+    }
+
+    /// Our own output must not be reported back as something we failed to read —
+    /// otherwise every re-run accuses itself of ignoring the sidecars it wrote.
+    #[test]
+    fn our_own_sidecars_are_not_counted_as_ignored() {
+        let (_dir, walk) = walk_over(&["IMG_0001.CR3", "IMG_0001.xmp", "IMG_0002.XMP"]);
+
+        assert_eq!(walk.files.len(), 1);
+        assert!(walk.ignored.is_empty(), "{:?}", walk.ignored);
+    }
+
+    #[test]
+    fn ignored_extensions_are_reported_busiest_first_and_truncated() {
+        let counts = BTreeMap::from([
+            ("arw".to_string(), 418),
+            ("jpg".to_string(), 42),
+            ("dng".to_string(), 7),
+            ("tif".to_string(), 3),
+            ("psd".to_string(), 1),
+        ]);
+        assert_eq!(
+            describe_ignored(&counts),
+            ".arw 418, .jpg 42, .dng 7, +2 more"
+        );
+    }
+
+    #[test]
+    fn collect_paths_rejects_something_that_is_not_a_directory() {
+        let dir = tempfile::tempdir().expect("creating the scratch directory");
+        let file = dir.path().join("not-a-dir.cr3");
+        std::fs::write(&file, "x").expect("creating a test file");
+
+        assert!(collect_paths(&file).is_err());
+    }
 
     /// The sort is load-bearing twice over: it makes output order independent of
     /// filesystem enumeration order, and it hands each rayon worker a contiguous
@@ -1164,40 +1393,29 @@ mod tests {
             (dir.path(), "img_0001.cr3"),
             (dir.path(), "IMG_0002.CR3"),
             (dir.path(), "notes.txt"),
-            (dir.path(), "DSC_0001.NEF"),
             (nested.as_path(), "IMG_0003.CR3"),
         ] {
             std::fs::write(at.join(name), "x").expect("creating a test file");
         }
 
-        let (paths, errors) = collect_paths(dir.path(), RawFormat::Cr3).expect("the dir exists");
+        let walk = collect_paths(dir.path()).expect("the dir exists");
 
-        assert!(errors.is_empty(), "{errors:?}");
-        let relative: Vec<String> = paths
+        assert!(walk.errors.is_empty(), "{:?}", walk.errors);
+        let relative: Vec<String> = walk
+            .files
             .iter()
-            .map(|p| {
-                p.strip_prefix(dir.path())
+            .map(|f| {
+                f.path
+                    .strip_prefix(dir.path())
                     .unwrap()
                     .to_string_lossy()
-                    .replace('\\', "/")
+                    .replace(std::path::MAIN_SEPARATOR, "/")
             })
             .collect();
-
-        // `notes.txt` and the NEF are excluded, the nested CR3 is found, and the
-        // uppercase name sorts ahead of the lowercase one.
         assert_eq!(
             relative,
             ["IMG_0002.CR3", "img_0001.cr3", "nested/IMG_0003.CR3"]
         );
-    }
-
-    #[test]
-    fn collect_paths_rejects_something_that_is_not_a_directory() {
-        let dir = tempfile::tempdir().expect("creating the scratch directory");
-        let file = dir.path().join("not-a-dir.cr3");
-        std::fs::write(&file, "x").expect("creating a test file");
-
-        assert!(collect_paths(&file, RawFormat::Cr3).is_err());
     }
 
     fn written(path: &str, kind: WrittenKind) -> Written {

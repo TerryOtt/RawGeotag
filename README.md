@@ -34,11 +34,12 @@ Visual Studio Build Tools "Desktop development with C++" workload.
 
 ```
 cargo build --release
-./target/release/rawgeotag ./shoot cr3 ./track.gpx
+./target/release/rawgeotag ./shoot ./track.gpx
 ```
 
-That reads every `.cr3` under `./shoot`, matches each photo's capture time against the
-track, and writes `IMG_1234.xmp` next to `IMG_1234.CR3`. The binary lands at
+That reads **every supported raw** under `./shoot` — there is no extension to name —
+matches each photo's capture time against the track, and writes `IMG_1234.xmp` next to
+`IMG_1234.CR3`. Files it cannot read are counted and named rather than passed over. The binary lands at
 `target/release/rawgeotag` — `rawgeotag.exe` on Windows.
 
 Three things to expect from that first run:
@@ -53,10 +54,9 @@ Three things to expect from that first run:
 ## Usage
 
 ```
-rawgeotag <DIR> <EXT> <GPX>... [OPTIONS]
+rawgeotag <DIR> <GPX>... [OPTIONS]
 
-  DIR    parent directory, searched recursively
-  EXT    raw extension: "cr3" or "nef" (case-insensitive, leading "." tolerated)
+  DIR    parent directory, searched recursively; every supported raw under it is tagged
   GPX    path to a GPX track file; repeat for a day split across several tracks
 
   --utc-offset <±HHMM>     offset for files with no EXIF timezone, e.g. -0700
@@ -72,14 +72,18 @@ rawgeotag <DIR> <EXT> <GPX>... [OPTIONS]
 `rawgeotag --help` is the authoritative list; this block is hand-maintained and
 omits clap's automatic `-h` and `-V`.
 
-**Canon CR3 and Nikon NEF are supported.** They differ in one way worth knowing
-before a NEF run: many Nikon bodies write no EXIF timezone at all, so every file
-hits the "no timezone" refusal and `--utc-offset` becomes mandatory rather than
-optional. NEF also costs more to read — see
-[NEF is a different shape](#nef-is-a-different-shape).
+**Canon CR3 and Nikon NEF are supported, and a single run tags both.** Point it at a
+folder holding two bodies' output and each file goes through its own read path; the
+summary breaks the count down by format when a run spans more than one.
+
+They differ in one way worth knowing before a NEF run: many Nikon bodies write no EXIF
+timezone at all, so every file hits the "no timezone" refusal and `--utc-offset` becomes
+mandatory rather than optional. One flag is enough even in a mixed folder — it applies
+*only* to files with no timezone of their own, so CR3s keep theirs. NEF also costs more
+to read; see [NEF is a different shape](#nef-is-a-different-shape).
 
 ```
-rawgeotag ./shoot nef ./track.gpx --utc-offset +0000
+rawgeotag ./shoot ./track.gpx --utc-offset +0000
 ```
 
 **Anything else needs work, and how much depends on the format.** Adding one the
@@ -93,7 +97,7 @@ walk. Pass them all and each photo is matched against whichever one covers its
 capture time:
 
 ```
-rawgeotag ./shoot cr3 ./daytime.gpx ./evening.gpx
+rawgeotag ./shoot ./daytime.gpx ./evening.gpx
 ```
 
 **Tracks that overlap in time are a fatal error** and nothing is written. Where two

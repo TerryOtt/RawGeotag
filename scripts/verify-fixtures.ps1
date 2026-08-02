@@ -50,13 +50,13 @@ $ErrorActionPreference = 'Stop'
 # do differ in -- read strategy and timezone case -- is preserved exactly, which is
 # where all the coverage was. See "Bring your own raws" in docs/FIXTURES.md.
 $Fixtures = @(
-    @{ Name = 'cr3-malta';   Ext = 'cr3'; Gpx = 'malta-2025-09-18.gpx';   Args = @();
+    @{ Name = 'cr3-malta';   Gpx = 'malta-2025-09-18.gpx';   Args = @();
        Count = 2; Hash = 'CF2D1DA68FA359AA'
        Exercises = 'Streaming read path; EXIF offset +00:00 (present, no-op)' }
-    @{ Name = 'cr3-rockies'; Ext = 'cr3'; Gpx = 'rockies-2022-09-27.gpx'; Args = @();
+    @{ Name = 'cr3-rockies'; Gpx = 'rockies-2022-09-27.gpx'; Args = @();
        Count = 2; Hash = '047EF9B17BE64472'
        Exercises = 'Streaming read path; EXIF offset +01:00 (real conversion)' }
-    @{ Name = 'nef-sedona';  Ext = 'nef'; Gpx = 'sedona-2019-01-19.gpx';  Args = @('--utc-offset', '+0000');
+    @{ Name = 'nef-sedona';  Gpx = 'sedona-2019-01-19.gpx';  Args = @('--utc-offset', '+0000');
        Count = 2; Hash = 'F858DA7AA022AF2B'
        Exercises = 'WholeFile read path; no EXIF offset, so --utc-offset is required' }
 )
@@ -121,7 +121,7 @@ foreach ($f in $Fixtures) {
     # The gate: a format with no EXIF offset must refuse the whole run when
     # --utc-offset is absent. Only meaningful where the body records no offset.
     if ($f.Args -contains '--utc-offset') {
-        & $Binary $dir $f.Ext $gpx 2>&1 | Out-Null
+        & $Binary $dir $gpx 2>&1 | Out-Null
         $leaked = (Get-ChildItem -LiteralPath $dir -Filter *.xmp -Force).Count
         if ($leaked -eq 0) {
             Write-Host "    gate     : refused without --utc-offset, wrote nothing  OK" -ForegroundColor Green
@@ -131,7 +131,7 @@ foreach ($f in $Fixtures) {
         }
     }
 
-    & $Binary @($f.Args) $dir $f.Ext $gpx 2>$null | Out-Null
+    & $Binary @($f.Args) $dir $gpx 2>$null | Out-Null
     $got = Get-AggregateHash $dir
 
     if ($got.Count -ne $f.Count) {

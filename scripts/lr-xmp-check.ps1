@@ -178,7 +178,7 @@ if ($PSCmdlet.ParameterSetName -eq 'Stage' -or $Stage) {
     Copy-Item $gpxSrc -Destination $emit
     $gpx = Join-Path $emit (Split-Path $gpxSrc -Leaf)
 
-    & $Binary --no-progress $emit cr3 $gpx | Out-Null
+    & $Binary --no-progress $emit $gpx | Out-Null
     $sidecar = Get-ChildItem -LiteralPath $emit -Filter *.xmp -Force | Select-Object -First 1
     if (-not $sidecar) { throw "rawgeotag wrote no sidecar for $($photo.Name)" }
 

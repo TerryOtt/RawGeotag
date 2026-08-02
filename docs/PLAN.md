@@ -17,10 +17,9 @@ CR3 shipped first and **Nikon NEF has since been added**, which is what put the 
 ## CLI
 
 ```
-rawgeotag <DIR> <EXT> <GPX>... [OPTIONS]
+rawgeotag <DIR> <GPX>... [OPTIONS]
 
-  DIR    parent directory, searched recursively
-  EXT    raw extension: "cr3" or "nef" (case-insensitive, leading "." tolerated)
+  DIR    parent directory, searched recursively; every supported raw under it is tagged
   GPX    path to a GPX track file; repeat for a day split across several tracks
 
   --utc-offset <±HHMM>     offset for files with no EXIF timezone, e.g. -0700, +0430
@@ -35,9 +34,15 @@ rawgeotag <DIR> <EXT> <GPX>... [OPTIONS]
 
 `--help` is the authoritative list; this block is a design sketch and omits clap's automatic `-h` and `-V`. `--max-gap` and `--max-distance` were **not** in the original design — they arrived with the gap-rule reversal recorded under track.rs below.
 
-Positional order follows the original spec. `--utc-offset` is a flag rather than a fourth positional since it is optional and sign-prefixed.
+Positional order follows the original spec. `--utc-offset` is a flag rather than a positional since it is optional and sign-prefixed.
 
-`EXT` is validated against the known-format table, so an unsupported value fails immediately with a message listing what *is* supported, and `--help` stays self-documenting as formats are added. (An early note here suggested relaxing the check if a TIFF-based raw would have worked but wasn't listed. **Do not** — NEF showed that an unlisted format is more likely to fail at the parse than to quietly work, and it needed a `read_strategy` entry to work at all. The strictness is buying something.)
+> **Reversed 2026-08-02: `EXT` is gone.** It used to be a required second positional, validated against the known-format table so an unsupported value failed immediately with a message listing what *is* supported. A run now tags **every** supported format found under `DIR`, choosing `read_strategy` and `capture_tags` per file.
+>
+> Why the reversal is safe rather than merely convenient: the extension was never the thing scoping a run — the *track* is, since photos outside it are skipped, and the *directory* is, which is where the real footgun always lived. It also made `RawFormat::ALL` load-bearing instead of a lookup the CLI immediately collapsed to one entry, and it handles a two-body shoot in one pass where it previously took two. A single `--utc-offset` remains correct in a mixed folder because it applies *only* to files with no timezone of their own.
+>
+> **What the reversal had to replace is the discoverability `EXT` was quietly providing.** Typing `arw` was the only way the tool ever told you what it supports; without it, a Sony shooter would get a silent no-op that reads as a mistyped path. So the walk now counts what it passed over and the summary names it — `Ignored 418   .arw 418  (supported: cr3, nef)`. That is strictly better, because it volunteers the fact about files actually present rather than waiting for a guess.
+>
+> The old note here warned against *relaxing* the check to accept an unlisted TIFF-based raw. That still stands and is untouched: the walk matches only extensions a `RawFormat` declares, and NEF proved an unlisted format is likelier to fail at the parse than to quietly work — it needed a `read_strategy` entry to work at all.
 
 ## Dependencies
 
