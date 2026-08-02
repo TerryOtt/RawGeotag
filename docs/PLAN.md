@@ -414,6 +414,18 @@ Exit non-zero if any file errored or the gate fired; zero if everything was eith
     | `settings.dry_run` inverted, so `--dry-run` writes and a real run does not | `dry_run_reports_a_tag_but_creates_no_file` |
     | `force` and `dry_run` swapped in `WriteSettings::from_args` | `write_settings_carry_the_flags_they_were_given` |
     | `collect_paths` loses its `sort_unstable` | `collect_paths_finds_matching_files_recursively_and_sorts_them` |
+    | `exif_offset` ignores the `Aware` shape and returns only the paired tag | `a_merged_aware_timestamp_supplies_its_own_offset`, `an_aware_timestamp_wins_over_a_paired_offset_tag` |
+    | `exif_offset` drops the paired-tag fallback | `a_naive_timestamp_falls_back_to_the_paired_offset_tag` |
+
+    **The `Aware` row is the one that justifies the whole practice.** Before those
+    tests existed, a version of `exif_offset` that ignored its `datetime` argument
+    entirely passed **all 81 unit tests and all three fixture aggregates** — measured,
+    not assumed. Every CR3 and NEF nom-exif returns is `Naive`, so no photograph on
+    disk can reach that arm; JPEG is the format that yields `Aware`, and this tool
+    does not read JPEG. **A fixture suite cannot cover a branch no supported input
+    reaches**, which is exactly where a unit test over a hand-built value is the only
+    option. Watch for the same shape wherever code is defensive about a case the
+    current formats do not produce.
 
     **That last row is the one worth reading the detail of, because the first
     attempt at it was decorative.** The test originally used plainly alphabetical

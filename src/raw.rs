@@ -9,7 +9,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, FixedOffset, Utc};
-use nom_exif::{Error as ExifError, Exif, MediaParser, MediaSource};
+use nom_exif::{Error as ExifError, Exif, ExifDateTime, MediaParser, MediaSource};
 
 use crate::format::{RawFormat, ReadStrategy};
 
@@ -128,17 +128,8 @@ pub fn capture_time(
         return Ok(Capture::NoCaptureTime);
     };
 
-    // The zone the camera recorded. Two shapes have to be handled because nom-exif
-    // only merges the offset into the datetime for some containers: a JPEG yields
-    // an `Aware` value, while a CR3 yields a `Naive` one plus a separate
-    // `OffsetTimeOriginal` text entry. Checking both keeps "EXIF wins" true for
-    // every format rather than only the ones that happen to pre-merge.
-    let exif_offset = datetime
-        .aware()
-        .map(|aware| *aware.offset())
-        .or(paired_offset);
-
-    let (offset, conflict) = match choose_offset(exif_offset, utc_offset) {
+    let (offset, conflict) = match choose_offset(exif_offset(&datetime, paired_offset), utc_offset)
+    {
         OffsetChoice::Apply { offset, conflict } => (offset, conflict),
         OffsetChoice::Gate => return Ok(Capture::NeedsOffset),
     };
@@ -150,6 +141,22 @@ pub fn capture_time(
         at: datetime.or_offset(offset).with_timezone(&Utc),
         conflict,
     })
+}
+
+/// The zone the camera recorded, from whichever shape nom-exif produced.
+///
+/// Two shapes have to be handled because nom-exif only merges the offset into the
+/// datetime for some containers: a JPEG yields an `Aware` value, while a CR3 yields
+/// a `Naive` one plus a separate `OffsetTimeOriginal` text entry. Checking both
+/// keeps "EXIF wins" true for every format rather than only the ones that happen to
+/// pre-merge. That is the CR3 timezone trap; see CLAUDE.md before touching it.
+///
+/// **Split out of `capture_time` because no fixture can reach the `Aware` arm.**
+/// Every CR3 and NEF this tool reads comes back `Naive`, so that half is exercised
+/// by nothing on disk — deleting it passes all three fixtures. The tests below are
+/// the only thing holding it.
+fn exif_offset(datetime: &ExifDateTime, paired: Option<FixedOffset>) -> Option<FixedOffset> {
+    datetime.aware().map(|aware| *aware.offset()).or(paired)
 }
 
 /// Parse an EXIF/CLI UTC offset: `±HH:MM` as EXIF writes it, or `±HHMM` as the
@@ -198,6 +205,8 @@ fn two_digits(text: &str) -> Option<i32> {
 
 #[cfg(test)]
 mod tests {
+    use chrono::{NaiveDate, TimeZone};
+
     use super::*;
 
     #[test]
@@ -249,6 +258,75 @@ mod tests {
         assert_eq!(
             parse_offset("-23:59"),
             FixedOffset::west_opt(23 * 3600 + 59 * 60)
+        );
+    }
+
+    // ---- the CR3 timezone trap ----------------------------------------------
+    //
+    // These are the only thing holding the `Aware` arm of `exif_offset`. Every CR3
+    // and NEF nom-exif hands back is `Naive`, so no fixture reaches it: a version
+    // of the function that ignored `datetime` entirely and returned the paired tag
+    // was measured to pass all 81 tests and all three fixture aggregates. JPEG is
+    // the format that yields `Aware`, and this tool does not read JPEG.
+
+    fn aware(hours: i32) -> ExifDateTime {
+        ExifDateTime::Aware(
+            east(hours)
+                .with_ymd_and_hms(2025, 9, 18, 6, 52, 3)
+                .single()
+                .expect("a valid test instant"),
+        )
+    }
+
+    fn naive() -> ExifDateTime {
+        ExifDateTime::Naive(
+            NaiveDate::from_ymd_opt(2025, 9, 18)
+                .expect("a valid test date")
+                .and_hms_opt(6, 52, 3)
+                .expect("a valid test time"),
+        )
+    }
+
+    #[test]
+    fn a_merged_aware_timestamp_supplies_its_own_offset() {
+        assert_eq!(exif_offset(&aware(2), None), Some(east(2)));
+    }
+
+    /// The case nothing else can reach: both shapes present and disagreeing. The
+    /// merged value is the camera's own and must win over the separate tag.
+    #[test]
+    fn an_aware_timestamp_wins_over_a_paired_offset_tag() {
+        assert_eq!(exif_offset(&aware(2), Some(east(-7))), Some(east(2)));
+    }
+
+    /// The CR3 and NEF shape: naive timestamp, offset in a separate entry.
+    #[test]
+    fn a_naive_timestamp_falls_back_to_the_paired_offset_tag() {
+        assert_eq!(exif_offset(&naive(), Some(east(1))), Some(east(1)));
+    }
+
+    /// The D3300 shape: naive and no offset tag at all, so nothing states the
+    /// zone and `choose_offset` must gate.
+    #[test]
+    fn a_naive_timestamp_with_no_paired_tag_has_no_offset() {
+        assert_eq!(exif_offset(&naive(), None), None);
+        assert_eq!(
+            choose_offset(exif_offset(&naive(), None), None),
+            OffsetChoice::Gate
+        );
+    }
+
+    /// `capture_time` relies on `or_offset` leaving an already-aware value alone —
+    /// that is what makes "EXIF wins" true rather than just claimed. It is a
+    /// dependency's contract, unreachable by any fixture, so a nom-exif upgrade
+    /// that changed it would otherwise be silent.
+    #[test]
+    fn or_offset_does_not_override_a_timestamp_that_already_has_a_zone() {
+        let resolved = aware(2).or_offset(east(-7));
+        assert_eq!(*resolved.offset(), east(2));
+        assert_eq!(
+            resolved.with_timezone(&Utc).to_string(),
+            "2025-09-18 04:52:03 UTC"
         );
     }
 
