@@ -159,11 +159,19 @@ nothing else would have caught before release.
 
 ### Behaviour checks
 
-Most are now unit tests, but confirm by hand after anything that touches the write
-path: existing sidecars skipped with a warning; `--force` overwrites; `--dry-run`
-writes nothing; a deliberately wrong `--utc-offset` against a CR3 that has
-`OffsetTimeOriginal` warns *and still uses the EXIF value*; omitting `--utc-offset`
-on naive-timestamp files trips the gate with nothing written.
+Most are now unit tests, and two more are automated than this list used to admit —
+`verify-fixtures.ps1` covers the gate *and*, since 2026-08-02, both dry-run
+guarantees. What is left to confirm by hand after anything that touches the write
+path: existing sidecars skipped with a warning; `--force` overwrites; a deliberately
+wrong `--utc-offset` against a CR3 that has `OffsetTimeOriginal` warns *and still
+uses the EXIF value*.
+
+**The dry-run rehearsal check is a worked example of rule 2**, and worth reading
+before writing a check of your own. It compares the sidecars' **last write time**,
+not their contents, because a `--dry-run --force` that wrongly wrote would re-render
+the same photo from the same track and lay down byte-identical files. The first
+version compared aggregates, passed the mutation it existed to catch, and read as
+coverage while guarding nothing.
 
 ### ExifTool as an independent oracle
 
@@ -219,6 +227,8 @@ hand-maintained total is exactly the number that goes stale, and did.
 | `.gpx` dropped from `ignorable_extension`'s exclusions | `our_own_sidecars_and_tracks_are_not_counted_as_ignored` |
 | the empty-tree return goes back to swallowing walk errors and exiting clean | `an_unreadable_subdirectory_fails_the_run_rather_than_exiting_clean` |
 | `failed > 0` dropped from the exit-code decision, so a run with errored files exits clean | `a_file_that_is_not_a_raw_is_named_counted_and_fails_the_run` — **the whole unit suite passes this mutation**; the process test is the only thing holding it |
+| `settings.dry_run` inverted, checked again now the harness has a say | `dry_run_reports_a_tag_but_creates_no_file`, and `verify-fixtures.ps1`'s dry-run check on all three fixtures |
+| `if settings.dry_run` weakened to `&& !settings.force`, so the documented rehearsal writes | `dry_run_wins_over_force_on_an_existing_sidecar`, and the harness rehearsal check — **but only after it stopped comparing hashes**; see *Behaviour checks* |
 
 ## Known gaps
 

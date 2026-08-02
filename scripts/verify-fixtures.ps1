@@ -135,6 +135,23 @@ foreach ($f in $Fixtures) {
         }
     }
 
+    # --dry-run does every bit of the work and writes nothing. Checked on a clean
+    # directory, so any sidecar present afterwards was written by this invocation.
+    & $Binary @($f.Args) --dry-run $dir $gpx 2>$null | Out-Null
+    $leaked = @(Get-ChildItem -LiteralPath $dir -Filter *.xmp -Force).Count
+    if ($leaked -eq 0) {
+        Write-Host "    dry run  : wrote nothing  OK" -ForegroundColor Green
+    } else {
+        Write-Host "    dry run  : FAIL -- wrote $leaked sidecars" -ForegroundColor Red
+        $failed += "$($f.Name): --dry-run wrote $leaked sidecars"
+    }
+
+    # A no-op when the check above passed, which is the point: it keeps the real run
+    # below independent of it. Without this a dry run that wrongly wrote would hand
+    # the aggregate its own output to hash, and the count could read OK while two
+    # things were broken at once.
+    Get-ChildItem -LiteralPath $dir -Filter *.xmp -Force | Remove-Item -Force
+
     & $Binary @($f.Args) $dir $gpx 2>$null | Out-Null
     $got = Get-AggregateHash $dir
 
@@ -150,6 +167,30 @@ foreach ($f in $Fixtures) {
     } else {
         Write-Host "    aggregate: FAIL -- $($got.Hash), expected $($f.Hash)" -ForegroundColor Red
         $failed += "$($f.Name): aggregate $($got.Hash), expected $($f.Hash)"
+    }
+
+    # --dry-run --force is the documented rehearsal for a forced run: force gets the
+    # existing sidecars past the skip-existing check so they are reported as tagged,
+    # and dry_run still returns before the write. The sidecars from the run above are
+    # what make this a real check -- on an empty directory --force has nothing to
+    # overwrite and it would prove nothing.
+    #
+    # Compared by LAST WRITE TIME and not by hash, which is the whole point: a
+    # rehearsal that wrongly wrote would re-render the same photo from the same
+    # track and lay down byte-identical sidecars, so no content comparison can see
+    # it. Measured, not reasoned -- the first version of this check compared
+    # aggregates and passed a mutation that made --dry-run --force write.
+    $stamps = {
+        (Get-ChildItem -LiteralPath $dir -Filter *.xmp -Force | Sort-Object Name |
+            ForEach-Object { "$($_.Name):$($_.LastWriteTimeUtc.Ticks)" }) -join '|'
+    }
+    $before = & $stamps
+    & $Binary @($f.Args) --dry-run --force $dir $gpx 2>$null | Out-Null
+    if ((& $stamps) -eq $before) {
+        Write-Host "    rehearsal: --dry-run --force left them untouched  OK" -ForegroundColor Green
+    } else {
+        Write-Host "    rehearsal: FAIL -- --dry-run --force rewrote the sidecars" -ForegroundColor Red
+        $failed += "$($f.Name): --dry-run --force rewrote existing sidecars"
     }
 
     Get-ChildItem -LiteralPath $dir -Filter *.xmp -Force | Remove-Item -Force

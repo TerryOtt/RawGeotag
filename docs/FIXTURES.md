@@ -95,6 +95,14 @@ fixture that catches it.
 `--utc-offset` is omitted — the D3300 records no EXIF timezone, so this set
 exercises the gate for free.
 
+**Every set also has both dry-run guarantees checked**, since they are what the
+README tells you to trust before an irreversible operation: `--dry-run` on a clean
+directory must write nothing, and `--dry-run --force` — the documented rehearsal —
+must leave existing sidecars untouched. The second compares **last write times**
+rather than content, because a rehearsal that wrongly wrote would produce
+byte-identical files and no hash could tell. Neither check moves any recorded
+aggregate; they are assertions added around the run, not new expected values.
+
 The aggregate is SHA-256 over the concatenated per-file SHA-256s, name-sorted:
 
 ```powershell
