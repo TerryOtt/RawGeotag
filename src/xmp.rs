@@ -36,8 +36,6 @@ pub fn sidecar_path(raw: &Path) -> PathBuf {
 /// document's newlines and four-space indent baked into a value, and spliced it
 /// mid-attribute-list. The layout was smeared across two places and the indent had
 /// to be kept matching by hand. Here it is an ordinary `if let`.
-/// Private: `render` is the only way to obtain one, so `pub` would name a type
-/// nothing outside this module can construct or receive.
 struct Packet<'a> {
     fix: &'a Fix,
     captured: DateTime<Utc>,
@@ -277,11 +275,11 @@ mod tests {
         assert_eq!(render(&fix, captured()), expected);
     }
 
-    // `packet_carries_coordinates_altitude_and_utc_timestamp` lived here and was
-    // removed: it asserted seven `contains` over the same `Fix` and instant that
+    // A `packet_carries_coordinates_altitude_and_utc_timestamp` test lived here and
+    // was removed: it asserted seven `contains` over the same `Fix` and instant that
     // `the_packet_is_exactly_this` already compares byte for byte, so every one of
-    // them was implied by that test and none could fail on its own. Its own doc
-    // comment explains why `contains` is the weaker check.
+    // them was implied and none could fail on its own. Do not re-add it — the two
+    // below earn their place by using *different* inputs.
 
     #[test]
     fn packet_omits_altitude_entirely_when_the_track_has_none() {

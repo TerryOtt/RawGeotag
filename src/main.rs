@@ -443,6 +443,18 @@ fn write_one(photo: Photo, track: &Track, settings: WriteSettings) -> Written {
     }
 }
 
+/// Decide one photo's fate and, unless told not to, write its sidecar.
+///
+/// The order of the checks is the behaviour, so it is worth stating: a photo the
+/// track cannot place never reaches the filesystem at all; an existing sidecar
+/// stops the write unless `--force`; and `--dry-run` returns after rendering but
+/// before writing.
+///
+/// **The two flags do not compose the way their names suggest.** `force` only gets
+/// past the skip-existing check — it does not force a write — so `--dry-run
+/// --force` still writes nothing. Both are single `bool` reads whose polarity the
+/// compiler cannot check, and inverting either is silent and destructive; the tests
+/// named after them are the only guard.
 fn write_sidecar(photo: &Photo, track: &Track, settings: WriteSettings) -> WrittenKind {
     let fix = match track.lookup(photo.captured, settings.limits) {
         Lookup::Found(fix) => fix,
@@ -563,6 +575,11 @@ fn collect_paths(dir: &Path, format: RawFormat) -> Result<(Vec<PathBuf>, Vec<Str
         }
     }
 
+    // Load-bearing twice, and neither reason is visible from here: it makes every
+    // report independent of filesystem enumeration order, and it hands each rayon
+    // worker a contiguous run of one directory, which is what lets a recursive run
+    // parallelize its writes across NTFS directory locks. Deleting it breaks
+    // nothing that fails loudly.
     paths.sort_unstable();
     Ok((paths, errors))
 }
@@ -901,12 +918,9 @@ mod tests {
 
     // ---- write_sidecar: the branches that decide whether a file is touched ----
     //
-    // `--force` and `--dry-run` had no automated coverage at all before these —
-    // not here and not in `verify-fixtures.ps1`, which never passes either flag.
-    // Both are single `bool` reads whose polarity the compiler cannot check, and
-    // inverting either is silent and destructive: `!settings.force` flipped would
-    // make an ordinary run overwrite existing sidecars, which is the one thing
-    // "do no harm" exists to prevent.
+    // `write_sidecar` explains the check order and why the two flags do not compose
+    // as their names suggest. What these add is coverage: `verify-fixtures.ps1`
+    // passes neither flag, so before these tests nothing exercised either one.
 
     /// A one-point track at a known instant, so `lookup` resolves exactly.
     fn one_point_track() -> Track {
@@ -1133,7 +1147,7 @@ mod tests {
     /// The sort is load-bearing twice over: it makes output order independent of
     /// filesystem enumeration order, and it hands each rayon worker a contiguous
     /// run of one directory. A `sed` once removed it silently and only the
-    /// determinism check noticed — see verification item 7 in the plan.
+    /// determinism check noticed — see the determinism log in `docs/TESTING.md`.
     #[test]
     fn collect_paths_finds_matching_files_recursively_and_sorts_them() {
         let dir = tempfile::tempdir().expect("creating the scratch directory");

@@ -310,11 +310,10 @@ mod tests {
 
     // ---- the CR3 timezone trap ----------------------------------------------
     //
-    // These are the only thing holding the `Aware` arm of `exif_offset`. Every CR3
-    // and NEF nom-exif hands back is `Naive`, so no fixture reaches it: a version
-    // of the function that ignored `datetime` entirely and returned the paired tag
-    // was measured to pass all 81 tests and all three fixture aggregates. JPEG is
-    // the format that yields `Aware`, and this tool does not read JPEG.
+    // `exif_offset` explains why its `Aware` arm is unreachable from any fixture.
+    // What is worth recording here is that it was measured rather than reasoned: a
+    // version returning only the paired tag passed the entire suite and all three
+    // fixture aggregates before these tests existed.
 
     fn aware(hours: i32) -> ExifDateTime {
         ExifDateTime::Aware(

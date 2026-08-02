@@ -25,6 +25,8 @@ rayon = "1"
 # Atomic sidecar writes. Hand-rolling the temp-then-rename is a few lines, but
 # this gets unique names (so concurrent runs over one directory cannot collide)
 # and deletion on drop (so a failed write leaves nothing behind) for free.
+# The tests use its `TempDir` for scratch directories for the same two reasons —
+# a normal dependency rather than a dev-dependency, so it is available to both.
 tempfile = "3"
 time = "0.3" # see the note on chrono
 walkdir = "2"
