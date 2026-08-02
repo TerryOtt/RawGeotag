@@ -26,6 +26,9 @@ same code will then produce different aggregates depending on which clone you ra
 `-CheckSources` is what detects that, since it hashes the raws against the manifests
 in git rather than against each other.
 
+**If you are not the author, you do not have this tree — see *Bring your own raws*
+below.** The short version is that you cannot have it, and do not need it.
+
 ## The three fixtures
 
 | Directory | Files | Size | Exercises |
@@ -81,6 +84,67 @@ change, the chrono refactor, `--jobs 1/2/8/16`, and the 2026-08-02 readability p
 that reshaped the phase structure, both outcome enums and the reporting order at
 once. That last one is the case these hashes exist for: it touched everything the
 determinism check polices and moved no output.
+
+## Bring your own raws
+
+The tree is not in git, not in LFS, and not published. This is not an oversight, and
+it is not a barrier to contributing.
+
+**The expected aggregates are not portable, so nobody else can use them anyway.** Each
+one is a SHA-256 over the sidecars produced from *those exact bytes* with *that exact
+track*. Different raws produce different sidecars produce a different aggregate. A
+contributor working from their own photographs must derive their own numbers no matter
+how the files are distributed, so shipping 3.7 GB would buy only the ability to
+reproduce one person's specific figures.
+
+**Most of the safety net is already in git.** The unit suite pins the emitted packet
+byte for byte (`the_packet_is_exactly_this` in `xmp.rs`), the coordinate encoding, the
+gap rules, the timezone policy and the gate. `cargo test` alone catches the large
+majority of regressions. What the fixtures add on top is real-file parsing — the two
+read strategies, and real EXIF from real bodies.
+
+### What a good fixture set needs
+
+Not many files. The count here is inherited from "the first N by name", not from any
+requirement — **one photo per case would exercise every distinct path**, which is
+about 110 MB rather than 3.7 GB:
+
+| Case | Why it matters |
+|---|---|
+| a CR3, or any format read with `Streaming` | one of the two read strategies |
+| a NEF, or any format read with `WholeFile` | the other, which fails differently |
+| a body that records `OffsetTimeOriginal` **non-zero** | the only case that catches a dropped EXIF offset; `+00:00` is a no-op and proves nothing |
+| a body that records **no** offset tag | makes the `--utc-offset` gate fire |
+| a GPX track covering each shoot | otherwise every photo is *outside track* |
+
+The third row is the one people will be tempted to skip, and it is the one that
+matters most — see *Why three and not two* above for the 49.9 km it catches.
+
+### Recording your own numbers
+
+1. Put your sets under a directory of your choosing, one per case.
+2. Point the harness at it:
+
+   ```powershell
+   .\scripts\verify-fixtures.ps1 -FixtureRoot <path-to-your-tree>
+   ```
+
+3. It will fail, reporting the aggregates it actually got. Those are your baselines.
+4. Put them in your copy of `verify-fixtures.ps1`, along with the file counts and a
+   one-line note of what each set exercises.
+5. Regenerate the manifests so `-CheckSources` works for you, one file per set under
+   `scripts/fixture-manifests/`:
+
+   ```powershell
+   Get-ChildItem -LiteralPath <dir> -Filter *.EXT -Force | Get-FileHash -Algorithm SHA256
+   ```
+
+From then on the check does for you exactly what it does here: tells you whether
+*your* change altered *your* output. That is the whole job. It was never able to tell
+you whether your output matches someone else's — the unit tests do that.
+
+**Do not commit your aggregates upstream.** They describe your photographs, not the
+code, and would fail for everyone else.
 
 ## Rebuilding the fixture
 
