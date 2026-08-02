@@ -212,6 +212,8 @@ hand-maintained total is exactly the number that goes stale, and did.
 | `describe_offsets` calls any mix "two clocks in one run" | `more_than_two_clocks_are_reported_as_several` |
 | the timezone line's file count loses its `plural()` | `two_non_utc_clocks_are_reported_as_a_mix` |
 | `.gpx` dropped from `ignorable_extension`'s exclusions | `our_own_sidecars_and_tracks_are_not_counted_as_ignored` |
+| the empty-tree return goes back to swallowing walk errors and exiting clean | `an_unreadable_subdirectory_fails_the_run_rather_than_exiting_clean` |
+| `failed > 0` dropped from the exit-code decision, so a run with errored files exits clean | `a_file_that_is_not_a_raw_is_named_counted_and_fails_the_run` — **the whole unit suite passes this mutation**; the process test is the only thing holding it |
 
 ## Known gaps
 
@@ -220,5 +222,5 @@ Recorded deliberately, per rule 4.
 | Gap | Why it is left |
 |---|---|
 | `nom_exif::Error::ExifNotFound` → `Capture::NoCaptureTime` | Reaching it needs a file nom-exif recognises as media but that carries no EXIF. Empty and non-media files fail earlier at `MediaSource::open` — measured — which the two error tests do cover. Synthesising a valid-but-EXIF-less media file costs more than the branch is worth: it changes a per-file diagnostic, not which photos get tagged. |
-| `run()` end to end | Not unit-testable as a `fn main` binary. Covered by `verify-fixtures.ps1`, which exercises it as a process. |
+| `run()`'s happy path and the gate, end to end | They need real camera files by design; `verify-fixtures.ps1` exercises both as a process. This row used to cover all of `run()` — until the 2026-08-02 walk-error bug landed in exactly that blind spot. The orchestration branches reachable *without* raws — the early returns, the refusals, the exit codes — are no longer a gap: `tests/cli.rs` drives the built binary over synthetic input via `CARGO_BIN_EXE_`, Cargo's own mechanism, with no dependency added. |
 | `raw::capture_time`'s parse path | Needs real camera files by design. That is what the fixtures are, and why every new format needs one. |
