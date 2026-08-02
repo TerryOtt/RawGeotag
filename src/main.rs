@@ -397,6 +397,7 @@ struct Written {
     kind: WrittenKind,
 }
 
+#[derive(Debug)]
 enum WrittenKind {
     Tagged { fix: Fix },
     OutsideTrack,
@@ -709,6 +710,8 @@ fn parse_utc_offset(text: &str) -> Result<FixedOffset, String> {
 
 #[cfg(test)]
 mod tests {
+    use crate::track::TrackPoint;
+
     use super::*;
 
     #[test]
@@ -896,6 +899,234 @@ mod tests {
             Path::new("/photos/DSC_0001.NEF"),
             RawFormat::Nef
         ));
+    }
+
+    // ---- write_sidecar: the branches that decide whether a file is touched ----
+    //
+    // `--force` and `--dry-run` had no automated coverage at all before these —
+    // not here and not in `verify-fixtures.ps1`, which never passes either flag.
+    // Both are single `bool` reads whose polarity the compiler cannot check, and
+    // inverting either is silent and destructive: `!settings.force` flipped would
+    // make an ordinary run overwrite existing sidecars, which is the one thing
+    // "do no harm" exists to prevent.
+
+    /// A one-point track at a known instant, so `lookup` resolves exactly.
+    fn one_point_track() -> Track {
+        Track::new(vec![TrackPoint {
+            at: DateTime::from_timestamp(1000, 0).expect("a valid test instant"),
+            lat: 47.0,
+            lon: -122.0,
+            ele: None,
+            segment: 0,
+        }])
+        .expect("a single-point track is valid")
+    }
+
+    fn photo_at(dir: &Path, name: &str, seconds: i64) -> Photo {
+        Photo {
+            path: dir.join(name),
+            captured: DateTime::from_timestamp(seconds, 0).expect("a valid test instant"),
+        }
+    }
+
+    fn settings(force: bool, dry_run: bool) -> WriteSettings {
+        WriteSettings {
+            limits: GapLimits::DEFAULT,
+            force,
+            dry_run,
+        }
+    }
+
+    #[test]
+    fn an_existing_sidecar_is_skipped_and_left_untouched_without_force() {
+        let dir = tempfile::tempdir().expect("creating the scratch directory");
+        let photo = photo_at(dir.path(), "IMG_0001.CR3", 1000);
+        let sidecar = dir.path().join("IMG_0001.xmp");
+        std::fs::write(&sidecar, "someone else's sidecar").expect("seeding the sidecar");
+
+        let kind = write_sidecar(&photo, &one_point_track(), settings(false, false));
+
+        assert!(matches!(kind, WrittenKind::SidecarExists), "{kind:?}");
+        // The point of the whole rule: the bytes that were there are still there.
+        assert_eq!(
+            std::fs::read_to_string(&sidecar).unwrap(),
+            "someone else's sidecar"
+        );
+    }
+
+    #[test]
+    fn force_overwrites_an_existing_sidecar() {
+        let dir = tempfile::tempdir().expect("creating the scratch directory");
+        let photo = photo_at(dir.path(), "IMG_0002.CR3", 1000);
+        let sidecar = dir.path().join("IMG_0002.xmp");
+        std::fs::write(&sidecar, "someone else's sidecar").expect("seeding the sidecar");
+
+        let kind = write_sidecar(&photo, &one_point_track(), settings(true, false));
+
+        assert!(matches!(kind, WrittenKind::Tagged { .. }), "{kind:?}");
+        assert!(std::fs::read_to_string(&sidecar)
+            .unwrap()
+            .contains("exif:GPSLatitude"));
+    }
+
+    #[test]
+    fn dry_run_reports_a_tag_but_creates_no_file() {
+        let dir = tempfile::tempdir().expect("creating the scratch directory");
+        let photo = photo_at(dir.path(), "IMG_0003.CR3", 1000);
+
+        let kind = write_sidecar(&photo, &one_point_track(), settings(false, true));
+
+        assert!(matches!(kind, WrittenKind::Tagged { .. }), "{kind:?}");
+        assert!(!dir.path().join("IMG_0003.xmp").exists());
+    }
+
+    /// `--dry-run --force` must still write nothing. `force` only gets past the
+    /// skip-existing check; `dry_run` returns before the write either way.
+    #[test]
+    fn dry_run_wins_over_force_on_an_existing_sidecar() {
+        let dir = tempfile::tempdir().expect("creating the scratch directory");
+        let photo = photo_at(dir.path(), "IMG_0004.CR3", 1000);
+        let sidecar = dir.path().join("IMG_0004.xmp");
+        std::fs::write(&sidecar, "untouched").expect("seeding the sidecar");
+
+        let kind = write_sidecar(&photo, &one_point_track(), settings(true, true));
+
+        assert!(matches!(kind, WrittenKind::Tagged { .. }), "{kind:?}");
+        assert_eq!(std::fs::read_to_string(&sidecar).unwrap(), "untouched");
+    }
+
+    /// A photo the track cannot place must leave nothing behind — no empty
+    /// sidecar, no temp file. This is the accuracy mantra at the filesystem.
+    #[test]
+    fn a_photo_the_track_cannot_place_writes_nothing() {
+        let dir = tempfile::tempdir().expect("creating the scratch directory");
+        let track = one_point_track();
+
+        let outside = photo_at(dir.path(), "IMG_0005.CR3", 9999);
+        let kind = write_sidecar(&outside, &track, settings(false, false));
+        assert!(matches!(kind, WrittenKind::OutsideTrack), "{kind:?}");
+
+        assert_eq!(
+            std::fs::read_dir(dir.path()).unwrap().count(),
+            0,
+            "an unplaceable photo must leave the directory empty"
+        );
+    }
+
+    #[test]
+    fn a_photo_in_a_gap_writes_nothing_and_the_gap_is_described() {
+        let dir = tempfile::tempdir().expect("creating the scratch directory");
+        // Two points 5,000 s and ~111 km apart, in different recording runs.
+        let track = Track::new(vec![
+            TrackPoint {
+                at: DateTime::from_timestamp(1000, 0).unwrap(),
+                lat: 47.0,
+                lon: -122.0,
+                ele: None,
+                segment: 0,
+            },
+            TrackPoint {
+                at: DateTime::from_timestamp(6000, 0).unwrap(),
+                lat: 48.0,
+                lon: -122.0,
+                ele: None,
+                segment: 1,
+            },
+        ])
+        .expect("a two-point track is valid");
+
+        let photo = photo_at(dir.path(), "IMG_0006.CR3", 3000);
+        let kind = write_sidecar(&photo, &track, settings(false, false));
+
+        match kind {
+            WrittenKind::InGap { description } => {
+                // Separators on both numbers, and the segment break called out.
+                assert!(description.contains("5,000s"), "{description}");
+                assert!(description.contains("111,195 m"), "{description}");
+                assert!(
+                    description.contains("(different recording runs)"),
+                    "{description}"
+                );
+            }
+            other => panic!("expected InGap, got {other:?}"),
+        }
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
+
+    /// A swap here compiles and silently trades one destructive flag for the
+    /// other, so the mapping is worth pinning rather than assuming.
+    #[test]
+    fn write_settings_carry_the_flags_they_were_given() {
+        let args = Args::parse_from(["rawgeotag", "--force", "photos", "cr3", "track.gpx"]);
+        let forced = WriteSettings::from_args(&args);
+        assert!(forced.force && !forced.dry_run);
+
+        let args = Args::parse_from(["rawgeotag", "--dry-run", "photos", "cr3", "track.gpx"]);
+        let dry = WriteSettings::from_args(&args);
+        assert!(dry.dry_run && !dry.force);
+
+        let args = Args::parse_from(["rawgeotag", "photos", "cr3", "track.gpx"]);
+        let plain = WriteSettings::from_args(&args);
+        assert!(!plain.force && !plain.dry_run);
+        assert_eq!(plain.limits.max_gap, GapLimits::DEFAULT.max_gap);
+    }
+
+    // ---- collect_paths -------------------------------------------------------
+
+    /// The sort is load-bearing twice over: it makes output order independent of
+    /// filesystem enumeration order, and it hands each rayon worker a contiguous
+    /// run of one directory. A `sed` once removed it silently and only the
+    /// determinism check noticed — see verification item 7 in the plan.
+    #[test]
+    fn collect_paths_finds_matching_files_recursively_and_sorts_them() {
+        let dir = tempfile::tempdir().expect("creating the scratch directory");
+        let nested = dir.path().join("nested");
+        std::fs::create_dir(&nested).expect("creating a subdirectory");
+
+        // The two names in the root differ only in case, deliberately. NTFS
+        // enumerates case-insensitively, so `WalkDir` yields `img_0001` first,
+        // while `PathBuf`'s `Ord` is byte-wise and puts `I` (0x49) before `i`
+        // (0x69). Only the sort can produce the order asserted below — with plain
+        // alphabetical names the walk already arrives sorted and the assertion
+        // would hold whether or not `collect_paths` sorted anything.
+        for (at, name) in [
+            (dir.path(), "img_0001.cr3"),
+            (dir.path(), "IMG_0002.CR3"),
+            (dir.path(), "notes.txt"),
+            (dir.path(), "DSC_0001.NEF"),
+            (nested.as_path(), "IMG_0003.CR3"),
+        ] {
+            std::fs::write(at.join(name), "x").expect("creating a test file");
+        }
+
+        let (paths, errors) = collect_paths(dir.path(), RawFormat::Cr3).expect("the dir exists");
+
+        assert!(errors.is_empty(), "{errors:?}");
+        let relative: Vec<String> = paths
+            .iter()
+            .map(|p| {
+                p.strip_prefix(dir.path())
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            })
+            .collect();
+
+        // `notes.txt` and the NEF are excluded, the nested CR3 is found, and the
+        // uppercase name sorts ahead of the lowercase one.
+        assert_eq!(
+            relative,
+            ["IMG_0002.CR3", "img_0001.cr3", "nested/IMG_0003.CR3"]
+        );
+    }
+
+    #[test]
+    fn collect_paths_rejects_something_that_is_not_a_directory() {
+        let dir = tempfile::tempdir().expect("creating the scratch directory");
+        let file = dir.path().join("not-a-dir.cr3");
+        std::fs::write(&file, "x").expect("creating a test file");
+
+        assert!(collect_paths(&file, RawFormat::Cr3).is_err());
     }
 
     fn written(path: &str, kind: WrittenKind) -> Written {

@@ -277,36 +277,11 @@ mod tests {
         assert_eq!(render(&fix, captured()), expected);
     }
 
-    #[test]
-    fn packet_carries_coordinates_altitude_and_utc_timestamp() {
-        let fix = Fix {
-            lat: 47.4455083,
-            lon: -122.3352833,
-            ele: Some(123.456),
-        };
-        // 2026-07-28T18:42:03Z
-        let packet = render(&fix, captured());
-
-        assert!(
-            packet.contains(r#"exif:GPSLatitude="47,26.7305N""#),
-            "{packet}"
-        );
-        assert!(
-            packet.contains(r#"exif:GPSLongitude="122,20.1170W""#),
-            "{packet}"
-        );
-        assert!(
-            packet.contains(r#"exif:GPSAltitude="123456/1000""#),
-            "{packet}"
-        );
-        assert!(packet.contains(r#"exif:GPSAltitudeRef="0""#), "{packet}");
-        assert!(
-            packet.contains(r#"exif:GPSTimeStamp="2026-07-28T18:42:03Z""#),
-            "{packet}"
-        );
-        assert!(packet.contains(r#"exif:GPSMapDatum="WGS-84""#), "{packet}");
-        assert!(packet.contains("<?xpacket end=\"w\"?>"), "{packet}");
-    }
+    // `packet_carries_coordinates_altitude_and_utc_timestamp` lived here and was
+    // removed: it asserted seven `contains` over the same `Fix` and instant that
+    // `the_packet_is_exactly_this` already compares byte for byte, so every one of
+    // them was implied by that test and none could fail on its own. Its own doc
+    // comment explains why `contains` is the weaker check.
 
     #[test]
     fn packet_omits_altitude_entirely_when_the_track_has_none() {

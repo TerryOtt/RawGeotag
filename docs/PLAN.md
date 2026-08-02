@@ -410,5 +410,19 @@ Exit non-zero if any file errored or the gate fired; zero if everything was eith
     | `parse_offset` reverts to stripping colons wherever they appear | `colons_are_only_accepted_between_the_hours_and_the_minutes` |
     | the directory walk filters on a hardcoded format rather than the run's | `a_run_for_one_format_does_not_collect_another` |
     | `tally_writes` collects per-file positions regardless of `--verbose` | `per_file_positions_are_collected_only_when_verbose` |
+    | `!settings.force` loses its `!`, so an ordinary run overwrites sidecars | `an_existing_sidecar_is_skipped_and_left_untouched_without_force` |
+    | `settings.dry_run` inverted, so `--dry-run` writes and a real run does not | `dry_run_reports_a_tag_but_creates_no_file` |
+    | `force` and `dry_run` swapped in `WriteSettings::from_args` | `write_settings_carry_the_flags_they_were_given` |
+    | `collect_paths` loses its `sort_unstable` | `collect_paths_finds_matching_files_recursively_and_sorts_them` |
+
+    **That last row is the one worth reading the detail of, because the first
+    attempt at it was decorative.** The test originally used plainly alphabetical
+    filenames, so `WalkDir` already yielded them in sorted order and deleting the
+    sort changed nothing — it passed the mutation and proved nothing. It now uses
+    two names differing only in case: NTFS enumerates case-insensitively while
+    `PathBuf`'s `Ord` is byte-wise, so only an explicit sort can produce the
+    asserted order. **A test whose subject is an ordering has to be built on inputs
+    the underlying source does not already order for you**, or it is measuring the
+    filesystem rather than the code.
 
     That last one is the shape to watch for: it compiles, passes every other test, and quietly changes which photos get tagged. Cross-module agreements — a CLI flag against the constant it is supposed to mirror, a `read_strategy` against the format it describes — are where this pays, because nothing else is checking them. **If a mutation produces no failure, the test is decorative; fix it then, while you still know what it was meant to catch.**
