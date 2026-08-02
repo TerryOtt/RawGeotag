@@ -95,7 +95,7 @@ struct Args {
     #[arg(long)]
     force: bool,
 
-    /// Do all the work, write nothing
+    /// Do all the work, write nothing; add --force to preview a forced run
     #[arg(long)]
     dry_run: bool,
 

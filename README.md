@@ -59,6 +59,21 @@ re-running a pass to get different results — is better served by **copying the
 to a temp directory and working there.** Nothing about the output depends on where the
 raws live, so a scratch copy costs you a copy and nothing else.
 
+**Rehearse it: `--dry-run --force` is the preview, not a contradiction.** The two
+flags answer different questions. `--force` decides which photos are *eligible* to be
+written; `--dry-run` decides whether anything is written at all. So they compose:
+
+| | reports | writes |
+|---|---|---|
+| `--dry-run` | existing sidecars as *skipped* — what a default run would do | nothing |
+| `--dry-run --force` | those same files as *tagged* — what a forced run would do | nothing |
+
+A plain `--dry-run` over a folder that already has sidecars tells you nothing about
+what `--force` would touch, because it reports them all as skips. Adding `--force`
+makes the same dry run name exactly the files that would be overwritten, and still
+writes nothing. `rsync --dry-run --delete` exists for the same reason: the more
+destructive the operation, the more it deserves a rehearsal.
+
 ## Status
 
 **Implemented and building.** The unit test suite passes and `cargo clippy
@@ -118,7 +133,7 @@ rawgeotag <DIR> <EXT> <GPX>... [OPTIONS]
   --max-gap <SECONDS>      refuse to interpolate across a longer hole [default: 60]
   --max-distance <METERS>  refuse to interpolate across a wider hole [default: 100]
   --force                  overwrite existing sidecars (default: skip with a warning)
-  --dry-run                do all work, write nothing
+  --dry-run                do all work, write nothing (add --force to preview one)
   -j, --jobs <N>           worker threads (default: 2; raise for network storage)
       --no-progress        suppress the progress bar
   -v, --verbose            per-file detail
