@@ -176,10 +176,14 @@ code with this one.
 
 ### Scaling
 
-Not a pass/fail check; see CLAUDE.md's *Measured behavior*. **Do not expect more
-threads to be faster** — on local storage throughput peaks at `-j 2`, so a slowdown
-at `-j 8` is the expected result. If you re-measure, evict the page cache and delete
-existing sidecars first, or you are timing RAM and cheap overwrites.
+Not a pass/fail check; see CLAUDE.md's *Measured behavior*. **Whether more threads
+are faster depends on whether the read is real** — on a *warm* re-run local storage
+peaks at `-j 2` and a slowdown at `-j 8` is the expected result, while a first
+touch of the same files behaves like SMB and `-j 20` wins by several fold. (This
+paragraph said "on local storage" unqualified until 2026-08-02, which is the same
+warm-only reading that produced the old default of 2.) If you re-measure, evict
+the page cache and delete existing sidecars first, or you are timing RAM and cheap
+overwrites.
 
 ## The mutation log
 
