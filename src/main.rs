@@ -3,9 +3,11 @@
 //! Raw files are never modified; the whole operation is undone by deleting the
 //! `.xmp` files.
 //!
-//! Several GPX files may be given for one directory, since a day's shooting is
-//! often split across separate recordings. `track.rs` documents what keeps that
-//! merge honest.
+//! Every supported raw format under the given directory is tagged in one pass;
+//! `format.rs` holds the table that decides which those are. Several GPX tracks may
+//! be given, as files or as directories of them, since a day's shooting is often
+//! split across separate recordings — `track.rs` documents what keeps that merge
+//! honest.
 //!
 //! The run is two parallel phases with a gate between them. Phase A extracts every
 //! capture time; the gate refuses to continue if any file has a naive timestamp
@@ -773,16 +775,16 @@ struct Summary<'a> {
 
 /// The timezone line, or `None` when there is nothing worth saying.
 ///
-/// Two cases are worth saying, and they are the same concern from opposite ends:
-/// **more than one zone in a run** — two bodies whose clocks disagree, which is a
-/// surprise worth naming — and **a single zone that is not UTC**, which displaces a
-/// whole shoot silently if the camera was set wrong. Every camera here is meant to
-/// be on UTC, so a non-zero offset is a slip rather than a decision; see *Whose
-/// clock is it* in CLAUDE.md. An all-UTC run says nothing at all.
+/// **Every camera here is meant to be on UTC**, so a non-zero offset is a slip
+/// rather than a decision — see *Whose clock is it* in CLAUDE.md. Two shapes follow
+/// from that, the same concern from opposite ends: **more than one zone in a run**,
+/// meaning two bodies whose clocks disagree, and **a single zone that is not UTC**,
+/// which displaces a whole shoot silently if the camera was set wrong. An all-UTC
+/// run says nothing at all.
 ///
-/// Unconditional deliberately — there is no flag to silence it. Every camera here is
-/// meant to be on UTC, so the line firing on every run of a wrongly-set body is the
-/// point rather than a nuisance to gate. See CLAUDE.md before adding one.
+/// There is deliberately no flag to silence this. The line firing on every run of a
+/// wrongly-set body is the point rather than a nuisance to gate; read CLAUDE.md
+/// before adding one.
 fn describe_offsets(offsets: &BTreeMap<i32, usize>) -> Option<String> {
     let all_utc = offsets.keys().all(|&seconds| seconds == 0);
     if offsets.len() < 2 && all_utc {
@@ -1306,9 +1308,9 @@ mod tests {
 
     // ---- the timezone note ---------------------------------------------------
     //
-    // Every camera here is meant to be on UTC, so the interesting cases are a run
-    // that used more than one zone and a run that used a single non-UTC one. Both
-    // displace photos silently if wrong, which is what the note exists to prevent.
+    // `describe_offsets` explains which shapes are worth naming and why there is no
+    // flag to silence them. These pin the four corners: silent, a single non-UTC
+    // zone, a mix, and a mix with no UTC in it at all.
 
     fn offsets_of(pairs: &[(i32, usize)]) -> BTreeMap<i32, usize> {
         pairs.iter().copied().collect()

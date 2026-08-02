@@ -125,9 +125,9 @@ impl RawFormat {
     /// Does `ext` select this format? Case-insensitive, and `ext` carries no
     /// leading dot.
     ///
-    /// The single home of the matching rule: `from_extension` resolves the
-    /// command-line argument through it and the directory walk filters files
-    /// through it, so a format that declares two extensions finds both.
+    /// The single home of the matching rule. The directory walk asks every format
+    /// in `ALL` through this, so a format declaring two extensions finds files
+    /// under both, and no other code is entitled to its own idea of what matches.
     pub fn matches_extension(self, ext: &str) -> bool {
         self.extensions()
             .iter()
@@ -216,8 +216,9 @@ mod tests {
         }
     }
 
-    /// The rule the directory walk filters on, so it is worth pinning
-    /// independently of `from_extension`.
+    /// The rule the directory walk filters on. Pinned here rather than only
+    /// through the walk, so a break in the matching rule itself is reported as
+    /// such rather than as some directory finding the wrong files.
     #[test]
     fn extension_matching_is_per_format_and_case_insensitive() {
         assert!(RawFormat::Cr3.matches_extension("cr3"));
