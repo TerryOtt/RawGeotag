@@ -578,7 +578,15 @@ the silent whole-shoot displacement the mantra exists to prevent, and it is wort
 may be a mistake he would want to know about. **The tool now does that mentioning
 itself**: `describe_offsets` puts a `Timezone` line in the summary whenever a run
 resolved through more than one zone, or through a single one that is not UTC. An
-all-UTC run stays silent, so the line only appears when there is something to say. **For the code:** do not narrow
+all-UTC run stays silent, so the line only appears when there is something to say.
+
+**That is unconditional on purpose, and it is not noise to be gated behind a flag.**
+Terry runs UTC on everything down to his wristwatch, so on his cameras a non-zero
+offset is *always* a mistake and always worth surfacing. With a customer base of one
+there is nothing to configure. If a second user ever objects, the shape is a
+`--warn-non-utc` defaulting to on — **but do not build it speculatively**, and do not
+quietly narrow the behaviour to "only warn on a mix" because a single-body Rockies
+run prints a line every time. Printing that line every time is the feature. **For the code:** do not narrow
 anything to match this habit. Other photographers legitimately shoot on local time,
 so the rule in `choose_offset` — EXIF wins, `--utc-offset` fills in, neither refuses
 the run — is right for both and should stay as it is.

@@ -713,6 +713,10 @@ struct Summary<'a> {
 /// whole shoot silently if the camera was set wrong. Every camera here is meant to
 /// be on UTC, so a non-zero offset is a slip rather than a decision; see *Whose
 /// clock is it* in CLAUDE.md. An all-UTC run says nothing at all.
+///
+/// Unconditional deliberately — there is no flag to silence it. Every camera here is
+/// meant to be on UTC, so the line firing on every run of a wrongly-set body is the
+/// point rather than a nuisance to gate. See CLAUDE.md before adding one.
 fn describe_offsets(offsets: &BTreeMap<i32, usize>) -> Option<String> {
     let all_utc = offsets.keys().all(|&seconds| seconds == 0);
     if offsets.len() < 2 && all_utc {
