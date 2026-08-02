@@ -84,10 +84,19 @@ CLAUDE.md's *The XMP we emit*. Then apply the rule already recorded there: **fol
 difference in kind, ignore an additive one.** Lightroom writing a new property we do
 not is not a reason to move; Lightroom writing *coordinates* differently is.
 
-**Known limit of this shortcut:** the Metadata panel's GPS field takes latitude and
-longitude. If altitude is what you need to see — the `/10000` rational, and whether
-`GPSAltitudeRef` has appeared — confirm whether manual entry carries it through, and
-fall back to a tracklog run for that row if it does not.
+**Known limit of this shortcut, and the reason for it:** placing a photo by hand gives
+Lightroom a latitude and longitude and *no elevation to write* — there is no source
+for one. Lightroom is not dropping altitude; it never had any. Confirmed 2026-08-02.
+
+So this check reads every row except altitude. **If altitude is what you need to see**
+— the `/10000` rational, and whether `GPSAltitudeRef` has finally appeared — **it takes
+a tracklog run**, because a GPX carries elevation and a dropped pin does not. That is
+step 3, or at least its Lightroom half.
+
+*(Manual placement being the one path that yields lat/lon with no altitude is recalled
+from experience rather than re-tested here, and possibly from Flickr rather than
+Lightroom. It does not change the instruction — a tracklog run is how you see that row
+either way — but treat the mechanism as likely rather than established.)*
 
 ### 3. The full same-photo, same-track diff
 
