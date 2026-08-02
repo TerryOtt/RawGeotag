@@ -42,6 +42,17 @@ Actions taken:
    - Optimize for wall-clock time; the work is parallel by design.
    - Readable and maintainable over clever; no surprises for an experienced Rust reviewer.
    - Design decisions are settled in `docs/PLAN.md` — read it before proposing changes.
+
+   > **"Keep it brief" did not survive, and that was a decision rather than a
+   > drift — recorded 2026-08-02 because the instruction above and the artifact
+   > had been disagreeing silently.** CLAUDE.md is now the longest document in the
+   > repo and loads into every session. What it grew into is not a summary of this
+   > plan but the thing this plan cannot be: the record of what real data did to
+   > the design — the CR3 timezone trap, NEF's `read_strategy`, the measured `-j`
+   > behavior, the storage rules. Every one of those cost a session to discover and
+   > would cost another to rediscover, which is the trade being made against its
+   > length. **The standard for adding to it is therefore "would a session
+   > otherwise repeat this mistake", not "is this true".**
 6. **Initial commit** on `main`.
 
 No remote is configured — this is a local repository unless a GitHub remote is requested separately.
@@ -140,36 +151,67 @@ pub struct CaptureTag {
     pub offset: ExifTag,
 }
 
+/// How a format's bytes have to reach the parser. This column is what NEF cost;
+/// see the paragraph above for why it is not optional.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReadStrategy {
+    Streaming,   // let the parser seek — a ~30 MB CR3 costs a few header reads
+    WholeFile,   // hand it every byte — required by the TIFF-based raws
+}
+
 /// A raw format we know how to read a capture time from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RawFormat {
     Cr3,
+    Nef,
 }
 
 impl RawFormat {
     /// Every supported format, in help-text order.
-    pub const ALL: &'static [RawFormat] = &[Self::Cr3];
+    pub const ALL: &'static [RawFormat] = &[Self::Cr3, Self::Nef];
 
     /// Extensions that select this format, lowercase.
     pub fn extensions(self) -> &'static [&'static str] {
         match self {
             Self::Cr3 => &["cr3"],
+            Self::Nef => &["nef"],
         }
     }
 
-    /// Capture-time tags to try, in priority order.
+    /// How to hand this format's bytes to the parser. Verified against real files
+    /// of each format, which is the only way to know.
+    pub fn read_strategy(self) -> ReadStrategy {
+        match self {
+            Self::Cr3 => ReadStrategy::Streaming,
+            Self::Nef => ReadStrategy::WholeFile,
+        }
+    }
+
+    /// Capture-time tags to try, in priority order. Collapsed deliberately: these
+    /// two formats genuinely do not differ here. Split the arm when one diverges.
     pub fn capture_tags(self) -> &'static [CaptureTag] {
         match self {
-            Self::Cr3 => &[
+            Self::Cr3 | Self::Nef => &[
                 CaptureTag { datetime: ExifTag::DateTimeOriginal, offset: ExifTag::OffsetTimeOriginal },
                 CaptureTag { datetime: ExifTag::CreateDate,       offset: ExifTag::OffsetTimeDigitized },
             ],
         }
     }
 
-    pub fn from_extension(ext: &str) -> Option<Self> { /* case-insensitive table scan */ }
+    /// Case-insensitive table scan, tolerating one leading dot.
+    pub fn from_extension(ext: &str) -> Option<Self> { /* ... */ }
+
+    /// The matching rule itself, shared with the directory walk so that a format
+    /// declaring two extensions finds files under both.
+    pub fn matches_extension(self, ext: &str) -> bool { /* ... */ }
 }
 ```
+
+**`format.rs` is authoritative, not this block.** It was written as a
+single-format sketch and updated once NEF landed; the shape is right but the
+bodies are abridged. Read the real file before adding a format — in particular
+`read_strategy` is easy to leave out of a sketch and impossible to leave out of a
+working format.
 
 **Adding a format is then:** add the variant → the compiler flags every `match` that no longer compiles → fill in those arms → add a fixture test against a real file of that format. Forgetting a spot is a **build error, not a runtime surprise**, which is precisely the property a trait-object registry or a `HashMap` of handlers would discard. This is the whole cost only when the parser already reads the format — Fujifilm RAF is such a case; NEF is not.
 
@@ -215,7 +257,9 @@ paths.par_iter()
 
 **Deterministic output.** Warnings are **never printed from worker threads** — interleaved stderr from N threads is unreadable and makes runs non-reproducible. Each worker returns its diagnostics in its outcome value; `main` sorts by path and prints after the phase completes. Progress goes through `indicatif`'s `ProgressBar`, which is internally synchronized; use `ProgressBar::suspend` if anything must print mid-phase.
 
-**Writes.** Sidecar paths are unique per input, so parallel writes never target the same file and the temp-file name derived from the target is inherently collision-free.
+**Writes.** Sidecar paths are unique per input, so parallel workers never target the same file.
+
+> **Corrected 2026-08-02 — the original sentence here said the temp file's name is "derived from the target", and got the reasoning backwards.** `xmp::write_atomic` uses `tempfile::NamedTempFile::new_in`, which picks a **random** name in the destination directory. That is not an incidental difference: a target-derived name is stable across processes, so two `rawgeotag` runs over one directory would pick the *same* temp path and race. Randomness is what rules that out, and it is why `tempfile` is a dependency at all rather than a hand-rolled temp-then-rename. `Cargo.toml` and `xmp.rs` both say so at the site; this is the one place that disagreed.
 
 Report elapsed wall time and throughput (files/sec) in the summary, so `--jobs` tuning is measurable rather than guesswork.
 
@@ -316,17 +360,21 @@ Default: **skip and warn**, naming each file. `--force` overwrites wholesale. No
 Always print a tallied summary; collected warnings are the detail lines behind it.
 
 ```
-Scanned   419 .cr3 files
-Tagged    405
-Skipped    14   9 outside track, 3 existing sidecar, 2 no capture time
-Elapsed   3.2s  (131 files/sec, 16 threads)
+Scanned      419 .cr3 files
+Tagged       405
+Skipped       14   9 outside track, 3 existing sidecar, 2 no capture time
+Elapsed      3.2s  (131 files/sec, 16 threads)
 ```
+
+The count column is **width 7**, which is wider than these numbers need: it is
+sized to fit a seven-figure count once thousands separators are in. Widen it
+rather than dropping the separators if it ever overflows.
 
 Exit non-zero if any file errored or the gate fired; zero if everything was either tagged or deliberately skipped.
 
 ## Verification
 
-1. `cargo build --release`, `cargo clippy -- -D warnings`.
+1. `cargo build --release`, `cargo clippy --all-targets -- -D warnings`. **`--all-targets` is not optional** — without it clippy skips test code, which is over 40% of this crate's lines.
 2. **Unit tests** (`track.rs`, no fixtures needed): exact-timestamp hit; midpoint interpolation against hand-computed values; before-first and after-last both skip; antimeridian crossing stays near ±180; missing `ele` on one bracketing point suppresses altitude.
 3. **Unit test** (`xmp.rs`): a known lat/lon renders to the exact expected `DDD,MM.mmk` strings, including a southern/western hemisphere case and a negative altitude.
 4. **Unit test** (`format.rs`): iterate `RawFormat::ALL` and assert every declared extension round-trips through `from_extension`, in mixed case. This test fails if a new variant is added without a table entry, catching the one gap the compiler cannot. A second test pins each format's `read_strategy` to the value verified against real files — the compiler cannot tell that a `Streaming`/`WholeFile` choice is wrong, but every file of that format fails at runtime if it is. **Unit test** (`raw.rs`): `choose_offset` over all four combinations of (EXIF zone, `--utc-offset`) — EXIF wins, CLI fills in, disagreement is reported but EXIF still applied, and **neither present refuses the run**. That last one is the gate rule, and it is the branch every Nikon D3300 file takes.
@@ -353,12 +401,19 @@ Exit non-zero if any file errored or the gate fired; zero if everything was eith
 
 10. **Mutation-check any test that guards an invariant the compiler cannot see.** Write the test, then *break the thing it guards* and confirm it fails — ideally that it, and only it, fails. Revert immediately. A green test proves the code passes today; it does not prove the test would notice if the code stopped being right, and the tests worth the most here are exactly the ones whose subject is a silent behavior change rather than a crash.
 
-    Done three times so far, each catching precisely one test:
+    **No running total is kept here on purpose** — a hand-maintained count of how
+    many times this has been done is exactly the number that goes stale, and it
+    did. The table below is a reference of mutations already tried and what caught
+    them; append to it, and do not count it.
 
     | Mutation | Caught by |
     |---|---|
     | `choose_offset`'s `(None, None)` arm defaults to UTC instead of gating | `no_exif_zone_and_no_cli_offset_gates_the_run` |
     | gap comparison `>` loosened to `>=` | `a_gap_exactly_at_the_time_limit_is_still_bridged` |
     | `default_value_t = GapLimits::DEFAULT_GAP_SECONDS` replaced by a bare literal | `the_cli_gap_default_matches_the_shipped_limit` |
+    | `gate()` no longer sorts the zoneless paths it returns | `the_gate_reports_every_zoneless_file_in_sorted_order` |
+    | `parse_offset` reverts to stripping colons wherever they appear | `colons_are_only_accepted_between_the_hours_and_the_minutes` |
+    | the directory walk filters on a hardcoded format rather than the run's | `a_run_for_one_format_does_not_collect_another` |
+    | `tally_writes` collects per-file positions regardless of `--verbose` | `per_file_positions_are_collected_only_when_verbose` |
 
     That last one is the shape to watch for: it compiles, passes every other test, and quietly changes which photos get tagged. Cross-module agreements — a CLI flag against the constant it is supposed to mirror, a `read_strategy` against the format it describes — are where this pays, because nothing else is checking them. **If a mutation produces no failure, the test is decorative; fix it then, while you still know what it was meant to catch.**

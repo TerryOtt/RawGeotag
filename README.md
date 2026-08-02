@@ -99,8 +99,8 @@ compatibility request, not a bug in this one. See
 
 ## Status
 
-**Implemented and building.** The unit test suite passes and `cargo clippy -- -D
-warnings` is clean; run `cargo test` for the current tally.
+**Implemented and building.** The unit test suite passes and `cargo clippy
+--all-targets -- -D warnings` is clean; run `cargo test` for the current tally.
 
 Verified against real shoots and their GPX tracks, on two camera bodies:
 
@@ -157,6 +157,9 @@ rawgeotag <DIR> <EXT> <GPX>... [OPTIONS]
       --no-progress        suppress the progress bar
   -v, --verbose            per-file detail
 ```
+
+`rawgeotag --help` is the authoritative list; this block is hand-maintained and
+omits clap's automatic `-h` and `-V`.
 
 Example:
 
@@ -232,6 +235,10 @@ opposite answers.
 The numbers below are CR3. **NEF behaves differently enough to have its own section
 at the end** — read [NEF is a different shape](#nef-is-a-different-shape) before
 tuning `-j` for a Nikon import.
+
+These are a summary. The full measurement record, including the methodology each
+figure was taken under, lives in `CLAUDE.md`'s *Measured behavior* section — correct
+the two together.
 
 Measured on a real shoot — 3,883 Canon R5 CR3s (188 GB) on local NVMe, 20 logical
 cores, creating 2,394 sidecars from scratch:

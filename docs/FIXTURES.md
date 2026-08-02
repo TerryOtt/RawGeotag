@@ -75,8 +75,11 @@ fixture, so only hand-runs are exposed. And a deliberate change to `xmp.rs`'s pa
 or to the crate version in `x:xmptk`, moves all three hashes legitimately: re-derive
 and update `verify-fixtures.ps1` and this file rather than hunting a regression.
 
-The Malta and Sedona aggregates have held across the `tempfile` change, the chrono
-refactor, and `--jobs 1/2/8/16`.
+**All three aggregates have held across every refactor so far** — the `tempfile`
+change, the chrono refactor, `--jobs 1/2/8/16`, and the 2026-08-02 readability pass
+that reshaped the phase structure, both outcome enums and the reporting order at
+once. That last one is the case these hashes exist for: it touched everything the
+determinism check polices and moved no output.
 
 ## Rebuilding the fixture
 

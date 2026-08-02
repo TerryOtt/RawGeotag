@@ -179,6 +179,11 @@ inside a worker.
 
 ## Dependency versions: check crates.io, never recall from memory
 
+**The full process is [`docs/UPDATING.md`](docs/UPDATING.md)** — cadence, the
+`cargo outdated` column reading, the verification sequence, and what to do when a
+fixture hash moves after a bump (it is a regression, and the usual "re-derive the
+hash" advice inverts). What follows here is only the part that has bitten twice.
+
 The version numbers in [`docs/PLAN.md`](docs/PLAN.md)'s dependency table are
 **indicative, not authoritative**. Before any of them lands in `Cargo.toml` — a new
 dep, or a bump — confirm the current release with `cargo search <crate> --limit 1`.
@@ -304,20 +309,24 @@ which is what separates this from the hyperscale case where the instinct is righ
 
 ## Status
 
-Implemented. Builds clean, the unit test suite passes, `cargo clippy -- -D warnings`
-is clean. (No count here on purpose — it went stale three times; `cargo test` is the
-authoritative answer.) Toolchain on this machine: Rust 1.97.1 MSVC, with the VS Build Tools C++
-workload installed.
+Implemented. Builds clean, the unit test suite passes, `cargo clippy --all-targets
+-- -D warnings` is clean. **`--all-targets` is the form that matters** — without it
+clippy skips test code, which is over 40% of this crate's lines. (No count here on purpose —
+it went stale three times; `cargo test` is the authoritative answer.) Toolchain on
+this machine: Rust 1.97.1 MSVC, with the VS Build Tools C++ workload installed.
 
 **When you add a test for an invariant the compiler cannot see, mutation-check it**:
 break the thing it guards, confirm that test fails, revert. Green proves the code is
 right today; it does not prove the test would notice if the code stopped being right.
-Verification item 10 in the plan has the three worked examples and the failure shape
-to watch for — a change that compiles, passes everything else, and silently alters
-which photos get tagged.
+Verification item 10 in the plan carries the running table of mutations already tried
+and the failure shape to watch for — a change that compiles, passes everything else,
+and silently alters which photos get tagged.
 
-**Verified against five real shoots on two bodies** — four Canon EOS R5 (CR3) and
-one Nikon D3300 (NEF). The NEF run is written up under *NEF, and why
+**Byte-level verification covers five shoots on two bodies** — four Canon EOS R5
+(CR3) and one Nikon D3300 (NEF) — written up below. That is a narrower claim than
+where the tool has been *used*: *Field patterns from real shoots* draws on several
+more (NZ, Cabo, St. Lucia), which informed the gap-limit advice but were not
+diffed against hand-computed positions. The NEF run is under *NEF, and why
 `read_strategy` exists*; the four CR3 shoots follow.
 
 *Malta 2025-09-17* (`Q:\Lightroom\Images\2025\2025-09-17`, 1,024 files, with
@@ -590,7 +599,11 @@ Two NAS shares with opposite roles. Getting this wrong is either slow or damagin
 | Array | **HDD RAID6** — seek-bound, slow | **NVMe RAID10** — fast |
 | Holds | `Q:\Lightroom\Images\<year>\<date>` and `Q:\Photo GPX Tracks\<year>` | nothing that matters |
 | Rule | **read anything; create new `.xmp` only. Never delete, never overwrite** — binding constraint 5 | disposable, clobber freely — *except* `rawgeotag-bench`, see below |
-| Size | 11 TB, 3.8 TB free | 3.0 TB, 2.3 TB free (2026-08-01) |
+| Capacity | 11 TB | 3.0 TB |
+
+Free space is deliberately not recorded here — it changes on every run, no decision
+in this file turns on it, and a stale figure is worse than none. Ask the filesystem
+if it matters: `Get-PSDrive Q, N`.
 
 **Stage a working set on `N:\` before running anything that writes.** That is not
 optional — it is the only way to do trial runs, benchmark sweeps or `--force`
@@ -752,13 +765,23 @@ formats, recorded hashes, not this one.
 Being D3300, every file needs `--utc-offset`; without it the run stops at the gate.
 `--dry-run --utc-offset +0000` is the benchmark invocation.
 
-**NEF read sweep on `N:\`** — 200 files (~4.3 GB) per run, a separate staged set per
-job count, `--dry-run`:
+**NEF read sweep, `--dry-run`. The two rows were measured differently — read the
+note before comparing them to each other:**
 
 | `-j` | 1 | 2 | 4 | 8 | 16 |
 |---|---|---|---|---|---|
 | `N:\` NVMe RAID10 | 375 MB/s | 433 | 486 | **511** | 517 |
 | `Q:\` HDD RAID6 | 129 MB/s | 159 | — | 256 | — |
+
+- **`N:\` row:** 200 files (~4.3 GB) per run, from the four staged sets above. Note
+  there are **four sets and five columns** — `-j 16` necessarily re-used one, so
+  "a set per job count" is not true of this row as a whole. The methodology
+  paragraph below is what covers that: three independent `-j 1` runs and a 1.6%
+  spread between oldest- and newest-staged sets show re-reading did not put these
+  files in cache, so the re-use does not flatter the `-j 16` figure.
+- **`Q:\` row:** **not** the 200-file sets — a different uncached folder per job
+  count, of **3.7 GB / 27 GB / 103 GB** respectively. Throughput is therefore the
+  only comparable figure across it; elapsed time is not.
 
 **The interesting part is that the faster array scales *worse*.** `N:\` is ~2.9x
 `Q:\` single-threaded, but gains only **1.4x** from threads where `Q:\` gains ~2x —
@@ -781,6 +804,15 @@ and see both shares blocked, while `df -h` still lists them (`/q`, `/n`) because
 targets no path. `/add-dir N:\` grants it.
 
 ## Measured behavior worth not rediscovering
+
+> **This section is the canonical record, and `README.md`'s *Performance* section is
+> a user-facing summary drawn from it.** `docs/PLAN.md` deliberately carries none of
+> these numbers and says so. **Correcting a figure here means correcting README too**
+> — it restates the CR3 SMB table, the NEF SMB and NVMe sweeps, and the GPX parse
+> timings. They agree today; that was checked on 2026-08-02, and the one thing found
+> out of step was a *caveat* rather than a number (the sweep table's methodology
+> line, since fixed). Caveats are what drift here, so carry them across, not just
+> the digits.
 
 **`--jobs` defaults to 2, deliberately, and that is not a typo.** The optimum depends
 on the storage, and the two cases point in opposite directions:
