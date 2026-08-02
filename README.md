@@ -64,7 +64,7 @@ rawgeotag <DIR> <GPX>... [OPTIONS]
   --max-distance <METERS>  refuse to interpolate across a wider hole [default: 100]
   --force                  overwrite existing sidecars (default: skip with a warning)
   --dry-run                do all work, write nothing (add --force to preview one)
-  -j, --jobs <N>           worker threads (default: 2; raise for network storage)
+  -j, --jobs <N>           worker threads (default: 16; lower it only for warm re-runs)
       --no-progress        suppress the progress bar
   -v, --verbose            per-file detail
 ```
@@ -254,9 +254,11 @@ compatibility request, not a bug in this one. See
 
 ## Performance
 
-**`--jobs` defaults to 2.** That is well below the core count, and deliberate: the
-best thread count is set by your storage, and local and network storage want
-opposite answers.
+**`--jobs` defaults to 16.** The right thread count is decided by one thing: whether
+your storage has to *actually read* the files. On a fresh import it always does —
+local SSD or NAS, it makes little difference — and that read is what threads hide.
+The only case wanting fewer is a repeat run over files the OS still has in RAM, where
+the read is already free and the threads just contend.
 
 The numbers below are CR3. **NEF behaves differently enough to have its own section
 at the end** — read [NEF is a different shape](#nef-is-a-different-shape) before
@@ -276,11 +278,12 @@ files. A second run over the same files drops to ~1.4 s. That first number is st
 small next to the 7-14 minutes of copying the day onto the disk to begin with, which is
 where an import's time actually goes.
 
-**And on that first run, raise `-j` even though the files are local.** Measured on two
-freshly-staged copies of the same shoot, neither previously read: `-j 20` finished in
-**5.8 s** against **48.6 s** at `-j 2`. Once the read is real rather than served from
-RAM, local storage behaves like the network case below — so the table above, and the
-default of 2, describe a *warm* run. For a fresh import, `-j 16` or higher.
+**That table is also why the default is not 2.** On the same shoot, staged twice so
+neither copy had ever been read, `-j 20` finished in **5.8 s** against **48.6 s** at
+`-j 2`. Once the read is real rather than served from RAM, local storage behaves like
+the network case below. The table above therefore describes the *warm* case only, and
+the ~0.2 s it says you lose by running 16 threads there is the price of not losing
+~40 s on the run that matters.
 
 The EXIF read is nearly free locally (~0.3 s for all 3,883 files, since for CR3
 nom-exif seeks within the container rather than reading whole 30 MB files), so the
@@ -298,7 +301,8 @@ Network storage inverts this entirely. Cold reads over SMB:
 | Read throughput | 25 files/s | 107 files/s | 296 files/s |
 
 Nearly **12×** from parallelism — about 155 s single-threaded versus 13 s for a
-3,883-file day. If your CR3s live on a NAS or network share, pass `-j 16` or higher.
+3,883-file day. This is the case the default of 16 is sized for; if your CR3s live on
+a NAS, you need do nothing.
 
 Two traps if you benchmark this yourself: a warm page cache measures RAM rather than
 storage and understates cold read scaling by more than an order of magnitude, and

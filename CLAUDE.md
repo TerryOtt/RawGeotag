@@ -49,9 +49,11 @@ stated as an abstraction, and it does not land — the concrete pair is *no tag*
    appear in shipped code.
 
 2. **Optimize for wall-clock time.** The workload is embarrassingly parallel and is
-   I/O-bound, not CPU-bound. **Match the thread count to the storage, not to core
-   count** — "keep all cores busy" is actively wrong here, and `--jobs` defaults to
-   2 for that reason (see *Measured behavior*). Note that *what* the storage limit
+   I/O-bound, not CPU-bound. **Match the thread count to the read, not to core
+   count** — "keep all cores busy" is the right answer here for the wrong reason:
+   `--jobs` defaults to **16** because a first read of the files dominates the run
+   and threads hide it, not because there are cores to fill (see *Measured
+   behavior*). Note that *what* the storage limit
    is depends on the format: a `Streaming` format like CR3 is latency-bound and
    gains ~12x from threads over SMB, while a `WholeFile` format like NEF is
    bandwidth-bound and gains only ~2x. Do not introduce shared mutable state on the
@@ -819,8 +821,9 @@ targets no path. `/add-dir N:\` grants it.
 > here means correcting README too — **and carrying the caveat across, not just the
 > digit.** A stale caveat is what drifted last time, not a stale number.
 
-**`--jobs` defaults to 2, deliberately, and that is not a typo.** The optimum depends
-on the storage, and the two cases point in opposite directions:
+**`--jobs` defaults to 16 — raised from 2 on 2026-08-02, and the reason matters more
+than the number.** The optimum is decided by whether the read is real, not by the
+storage the files sit on:
 
 | | read phase | best `-j` | why |
 |---|---|---|---|
@@ -841,11 +844,19 @@ throughput, which points at the SSD's sustained-write state rather than at the t
 Against the best-case baseline the win is 3.5x, against the worst 8.4x. Quote it as
 "several fold", not as a number.
 
-**What this means for the default.** `--jobs 2` is tuned for the warm re-run, which is
-the *benchmark* case, not the case a photographer is in — a real import reads files the
-machine has never seen. Left at 2 for now because changing a default is Terry's call,
-not a measurement's; raised here so the question is on the record rather than
-rediscovered.
+**Why the default moved, and why it is not close.** `--jobs 2` was tuned for the warm
+re-run — the *benchmark* case, not the case a photographer is in, since a real import
+reads files the machine has never seen. The two errors are wildly asymmetric: running
+16 threads on a warm re-run costs **~70 ms**, running 2 on a fresh import costs
+**~40 s**. Terry made the call on 2026-08-02 to raise it; the measurement only
+supplied the asymmetry.
+
+**Do not "restore" 2 on the strength of a warm benchmark.** That is precisely the
+measurement that produced the wrong default the first time, and it will look
+convincing, because at `-j 2` a warm run genuinely is a hair faster. If a future
+session finds itself proposing this, the question to ask is whether the files were
+ever actually read from disk — and `DEFAULT_JOBS` in `main.rs` carries the same
+warning at the point of change.
 
 **Everything in this section was measured on CR3 and holds for `Streaming` formats
 only.** A `WholeFile` format moves the bottleneck from latency to bandwidth and the
@@ -894,16 +905,18 @@ Always evict or use untouched data before quoting read-scaling numbers.
 Seven tracks of one trip (15.4 MB, 75,728 points) cost the better part of a second —
 comparable to an entire local 3,883-file run — and all of it lands before a single
 photo is touched. `Track::load` now parses the files with `par_iter`: **658 ms at `-j 1`,
-390 at the `-j 2` default, 269 at `-j 4`, 215 at `-j 8`.** It scales with *file
+390 at `-j 2`, 269 at `-j 4`, 215 at `-j 8`.** It scales with *file
 count*, not total bytes — the floor is the largest single file, ~170 ms for a 4 MB
 track. The slowness is `xml-rs`, which the `gpx` crate uses internally; quick-xml
 would be far faster, but forking `gpx` to get it is not worth it.
 
-This *softens* the `--jobs` reasoning above without overturning it. Threads now help
-a phase the local-NVMe case previously had no use for them in, so a local run with
-many tracks is a case where a higher `-j` is defensible. But the 175 ms between
-`-j 2` and `-j 8` is smaller than the write contention a high `-j` costs on NTFS, so
-the default stays 2. Everything after the parse runs in argument order — segment
+This was written when the default was 2, as an argument that a higher `-j` was
+*defensible* for a local run with many tracks: threads help a phase the warm
+local-NVMe case had no other use for them in, though the 175 ms between `-j 2` and
+`-j 8` is smaller than the write contention a high `-j` costs on NTFS. **The cold-read
+measurement has since decided the question on much larger margins, and the default is
+16** — so this section is now one more reason for it rather than a case for an
+exception. Everything after the parse runs in argument order — segment
 ids, which of several bad files is reported, the overlap message — so none of this
 is visible in output at any `-j`.
 
@@ -946,7 +959,9 @@ Three things fall out, and the second is the one that gets guessed wrong:
    directories at `-j 8` hit 5,123/s — matching direct writes into one directory.
 
 **So `-j` advice depends on the shape of the run, not just the storage.** A
-single-folder import is write-serial and wants the default 2. A **recursive run over
+single-folder import is write-serial *once its reads are free* — which is a warm
+re-run, not an import, so this argues for `-j 2` in the one case that is never the
+real one. It was the reasoning behind the old default of 2. A **recursive run over
 many date folders parallelizes its writes** — and gets it free, because
 `collect_paths` sorts, so rayon's chunked split hands each worker a different
 directory. If a big multi-folder import ever feels slow, raise `-j` before

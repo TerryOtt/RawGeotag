@@ -43,16 +43,22 @@ use crate::track::{format_utc, Fix, GapLimits, Lookup, Track};
 
 /// Default worker count, tuned for the common case: raws on a local SSD.
 ///
-/// Counter-intuitively this is far below the core count. On local storage the
-/// EXIF read is nearly free (~0.3 s for 3,883 CR3s) and the run is dominated by
-/// *creating* sidecars, which are NTFS directory-metadata operations that NTFS
-/// serializes within a directory. Extra threads there only add contention, so
-/// throughput peaks at 2 and degrades above it — measured both warm and cold.
+/// Sized for the case a photographer is actually in — a fresh import, where the
+/// machine has never read these files. A first-touch read is a real read, and it
+/// dominates everything else: 3,883 CR3s take ~48 s at `-j 2` against 5.8 s at
+/// `-j 20`, on local NVMe. Cold local storage behaves like the network case
+/// below, not like the cached one.
+///
+/// Warm, the ordering reverses and 2 wins: the read collapses to ~0.3 s and all
+/// that is left is *creating* sidecars, which NTFS serializes within a single
+/// directory, so extra threads only contend. But that case is a re-run, and the
+/// asymmetry is what picks the default — being wrong about a warm run costs
+/// ~70 ms, being wrong about a first import costs ~40 s.
 ///
 /// High-latency storage inverts this completely: over SMB the read dominates
 /// and parallelizes ~12x, so `-j 16` or more is the right call there. That case
 /// is rare enough to be worth a flag rather than a worse default.
-const DEFAULT_JOBS: usize = 2;
+const DEFAULT_JOBS: usize = 16;
 
 #[derive(Parser)]
 #[command(
@@ -102,7 +108,7 @@ struct Args {
     #[arg(long)]
     dry_run: bool,
 
-    /// Worker threads. Tuned for local SSD; raise it for network storage
+    /// Worker threads. Sized for reading files the machine has not cached
     #[arg(short, long, value_name = "N", default_value_t = DEFAULT_JOBS)]
     jobs: usize,
 
@@ -1143,6 +1149,20 @@ mod tests {
             args.max_distance,
             GapLimits::DEFAULT.max_meters,
             "--max-distance default drifted from GapLimits::DEFAULT"
+        );
+    }
+
+    /// Same seam, same failure mode as the gap defaults above: a bare literal in
+    /// the clap attribute would compile, pass everything else, and silently
+    /// decouple the shipped default from the constant that carries the reasoning
+    /// for it. Parsing real argv is what catches that.
+    #[test]
+    fn the_cli_jobs_default_matches_the_constant() {
+        let args = Args::parse_from(["rawgeotag", "photos", "track.gpx"]);
+
+        assert_eq!(
+            args.jobs, DEFAULT_JOBS,
+            "--jobs default drifted from DEFAULT_JOBS"
         );
     }
 
