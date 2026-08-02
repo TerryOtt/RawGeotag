@@ -575,7 +575,10 @@ Two things follow, and they pull in opposite directions, which is why both are h
 **Operationally:** expect `+00:00`, but never rely on it — a wrong offset is exactly
 the silent whole-shoot displacement the mantra exists to prevent, and it is worth
 *mentioning* a non-zero offset to him rather than quietly honouring it, because it
-may be a mistake he would want to know about. **For the code:** do not narrow
+may be a mistake he would want to know about. **The tool now does that mentioning
+itself**: `describe_offsets` puts a `Timezone` line in the summary whenever a run
+resolved through more than one zone, or through a single one that is not UTC. An
+all-UTC run stays silent, so the line only appears when there is something to say. **For the code:** do not narrow
 anything to match this habit. Other photographers legitimately shoot on local time,
 so the rule in `choose_offset` — EXIF wins, `--utc-offset` fills in, neither refuses
 the run — is right for both and should stay as it is.

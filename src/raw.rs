@@ -18,6 +18,11 @@ pub enum Capture {
     /// Resolved to an absolute instant.
     Resolved {
         at: DateTime<Utc>,
+        /// The zone the instant was resolved *through*, whether it came from EXIF
+        /// or from `--utc-offset`. Reported, not used again: a run that resolves
+        /// through more than one zone, or through anything but UTC, is worth
+        /// saying out loud — see *Whose clock is it* in CLAUDE.md.
+        offset: FixedOffset,
         /// Set when EXIF and `--utc-offset` disagree. The EXIF value is used
         /// regardless; this is only reported.
         conflict: Option<OffsetConflict>,
@@ -139,6 +144,7 @@ pub fn capture_time(
         // ones untouched, so an already-aware datetime keeps its own zone. The
         // shift to UTC is then a pure change of representation, not of instant.
         at: datetime.or_offset(offset).with_timezone(&Utc),
+        offset,
         conflict,
     })
 }

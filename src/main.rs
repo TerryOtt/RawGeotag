@@ -196,6 +196,7 @@ fn run() -> Result<Outcome> {
     // ---- Gate ---------------------------------------------------------------
     let Extracted {
         photos,
+        offsets,
         mut warnings,
         no_capture_time,
         failed: read_failures,
@@ -246,6 +247,7 @@ fn run() -> Result<Outcome> {
 
     print_summary(&Summary {
         by_format: &by_format,
+        offsets: &offsets,
         ignored: &ignored,
         scanned,
         tagged: tally.tagged,
@@ -288,6 +290,8 @@ enum ExtractionKind {
     /// `--utc-offset` disagreed; the EXIF value was used either way.
     Resolved {
         captured: DateTime<Utc>,
+        /// The zone this instant was resolved through, for the summary.
+        offset: FixedOffset,
         conflict_warning: Option<String>,
     },
     NeedsOffset,
@@ -304,8 +308,13 @@ fn extract(
     utc_offset: Option<FixedOffset>,
 ) -> Extraction {
     let kind = match raw::capture_time(parser, path, format, utc_offset) {
-        Ok(Capture::Resolved { at, conflict }) => ExtractionKind::Resolved {
+        Ok(Capture::Resolved {
+            at,
+            offset,
+            conflict,
+        }) => ExtractionKind::Resolved {
             captured: at,
+            offset,
             conflict_warning: conflict.map(|conflict| {
                 format!(
                     "EXIF timezone {} disagrees with --utc-offset {}; using the EXIF value",
@@ -331,6 +340,11 @@ fn extract(
 #[derive(Default)]
 struct Extracted {
     photos: Vec<Photo>,
+    /// How many capture times resolved through each zone. More than one entry, or
+    /// one that is not UTC, is reported: a body on the wrong clock displaces a
+    /// whole shoot silently, which is the failure the mantra exists to prevent.
+    /// Keyed by seconds east of UTC, because `FixedOffset` is not `Ord`.
+    offsets: BTreeMap<i32, usize>,
     warnings: Vec<(PathBuf, String)>,
     no_capture_time: usize,
     /// Files that could not be read at all.
@@ -356,8 +370,13 @@ fn gate(extractions: Vec<Extraction>) -> Result<Extracted, Vec<PathBuf>> {
         match kind {
             ExtractionKind::Resolved {
                 captured,
+                offset,
                 conflict_warning,
             } => {
+                *extracted
+                    .offsets
+                    .entry(offset.local_minus_utc())
+                    .or_default() += 1;
                 if let Some(warning) = conflict_warning {
                     // The one case that clones: the path is needed again below.
                     extracted.warnings.push((path.clone(), warning));
@@ -672,6 +691,8 @@ struct Summary<'a> {
     by_format: &'a [(RawFormat, usize)],
     /// Extensions the walk passed over, and how many of each.
     ignored: &'a BTreeMap<String, usize>,
+    /// Zones the capture times resolved through, by seconds east of UTC.
+    offsets: &'a BTreeMap<i32, usize>,
     scanned: usize,
     tagged: usize,
     outside_track: usize,
@@ -682,6 +703,41 @@ struct Summary<'a> {
     elapsed: f64,
     threads: usize,
     dry_run: bool,
+}
+
+/// The timezone line, or `None` when there is nothing worth saying.
+///
+/// Two cases are worth saying, and they are the same concern from opposite ends:
+/// **more than one zone in a run** — two bodies whose clocks disagree, which is a
+/// surprise worth naming — and **a single zone that is not UTC**, which displaces a
+/// whole shoot silently if the camera was set wrong. Every camera here is meant to
+/// be on UTC, so a non-zero offset is a slip rather than a decision; see *Whose
+/// clock is it* in CLAUDE.md. An all-UTC run says nothing at all.
+fn describe_offsets(offsets: &BTreeMap<i32, usize>) -> Option<String> {
+    let all_utc = offsets.keys().all(|&seconds| seconds == 0);
+    if offsets.len() < 2 && all_utc {
+        return None;
+    }
+
+    let parts: Vec<String> = offsets
+        .iter()
+        .map(|(&seconds, files)| {
+            let offset = FixedOffset::east_opt(seconds).expect("a resolved offset is in range");
+            format!("{offset} ({} files)", count(*files))
+        })
+        .collect();
+
+    let tail = if offsets.len() > 1 {
+        "   — two clocks in one run"
+    } else {
+        "   — cameras are normally on UTC"
+    };
+    Some(format!(
+        "{:>7}   {}{}",
+        count(offsets.len()),
+        parts.join(", "),
+        tail
+    ))
 }
 
 /// Count the raws found, per format, in `RawFormat::ALL` order. Formats with no
@@ -775,6 +831,9 @@ fn print_summary(summary: &Summary) {
         count(summary.scanned),
         describe_formats(summary.by_format)
     );
+    if let Some(note) = describe_offsets(summary.offsets) {
+        println!("Timezone {note}");
+    }
     if !summary.ignored.is_empty() {
         println!(
             "Ignored  {:>7}   {}  (supported: {})",
@@ -881,6 +940,7 @@ mod tests {
     fn resolved() -> ExtractionKind {
         ExtractionKind::Resolved {
             captured: DateTime::from_timestamp(1000, 0).expect("a valid test instant"),
+            offset: FixedOffset::east_opt(0).expect("UTC"),
             conflict_warning: None,
         }
     }
@@ -942,6 +1002,7 @@ mod tests {
             "/photos/a.cr3",
             ExtractionKind::Resolved {
                 captured: DateTime::from_timestamp(1000, 0).expect("a valid test instant"),
+                offset: FixedOffset::east_opt(0).expect("UTC"),
                 conflict_warning: Some("EXIF timezone disagrees".to_string()),
             },
         )])
@@ -1168,6 +1229,55 @@ mod tests {
         assert_eq!(plain.limits.max_gap, GapLimits::DEFAULT.max_gap);
     }
 
+    // ---- the timezone note ---------------------------------------------------
+    //
+    // Every camera here is meant to be on UTC, so the interesting cases are a run
+    // that used more than one zone and a run that used a single non-UTC one. Both
+    // displace photos silently if wrong, which is what the note exists to prevent.
+
+    fn offsets_of(pairs: &[(i32, usize)]) -> BTreeMap<i32, usize> {
+        pairs.iter().copied().collect()
+    }
+
+    #[test]
+    fn an_all_utc_run_says_nothing_about_timezones() {
+        assert_eq!(describe_offsets(&offsets_of(&[(0, 40)])), None);
+        assert_eq!(describe_offsets(&offsets_of(&[])), None);
+    }
+
+    /// The Rockies body sat on `+01:00`. A whole shoot an hour out still tags,
+    /// because the shifted times land inside the track — so nothing else in the
+    /// run would say a word about it.
+    #[test]
+    fn a_single_non_utc_offset_is_still_worth_saying() {
+        let note = describe_offsets(&offsets_of(&[(3600, 30)])).expect("non-UTC is reportable");
+        assert!(note.contains("+01:00 (30 files)"), "{note}");
+        assert!(note.contains("normally on UTC"), "{note}");
+    }
+
+    #[test]
+    fn two_clocks_in_one_run_are_reported_together() {
+        let note =
+            describe_offsets(&offsets_of(&[(0, 2), (3600, 2)])).expect("a mix is reportable");
+        // Ascending by offset, so the line reads the same at any --jobs.
+        assert!(
+            note.contains("+00:00 (2 files), +01:00 (2 files)"),
+            "{note}"
+        );
+        assert!(note.contains("two clocks"), "{note}");
+    }
+
+    /// A mix that happens to include no UTC at all is still a mix.
+    #[test]
+    fn two_non_utc_clocks_are_reported_as_a_mix() {
+        let note = describe_offsets(&offsets_of(&[(3600, 1), (-25200, 1)])).expect("a mix");
+        assert!(
+            note.contains("-07:00 (1 files), +01:00 (1 files)"),
+            "{note}"
+        );
+        assert!(note.contains("two clocks"), "{note}");
+    }
+
     // ---- the summary's arithmetic --------------------------------------------
 
     fn summary_of(
@@ -1180,10 +1290,13 @@ mod tests {
         const NO_FORMATS: &[(RawFormat, usize)] = &[];
         static NOTHING_IGNORED: std::sync::LazyLock<BTreeMap<String, usize>> =
             std::sync::LazyLock::new(BTreeMap::new);
+        static NO_OFFSETS: std::sync::LazyLock<BTreeMap<i32, usize>> =
+            std::sync::LazyLock::new(BTreeMap::new);
 
         Summary {
             by_format: NO_FORMATS,
             ignored: &NOTHING_IGNORED,
+            offsets: &NO_OFFSETS,
             scanned: 100,
             tagged: 7,
             outside_track: outside,

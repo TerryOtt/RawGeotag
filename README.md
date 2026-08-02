@@ -112,6 +112,19 @@ pass tags only what the earlier one left alone.
   is warned about but the EXIF value is used. Files with a naive timestamp and no
   `--utc-offset` abort the run *before anything is written*, rather than silently
   misplacing every photo by the offset.
+
+  Because the rule is per file, **one `--utc-offset` is correct even in a mixed
+  folder** — it fills in only where EXIF has nothing, so a body that records its own
+  zone keeps it. The summary names the zones a run resolved through whenever there
+  is more than one, or whenever a single one is not UTC:
+
+  ```
+  Timezone       2   +00:00 (2 files), +01:00 (2 files)   — two clocks in one run
+  ```
+
+  That line is worth reading. A camera left on the wrong clock displaces a whole
+  shoot by that amount and still tags every photo, because the shifted times land
+  inside the track too — no error, no skip, nothing else to notice it by.
 - **Outside the track.** Photos taken before the track starts or after it ends are
   skipped and reported. No clamping, no extrapolation, no tolerance window.
 - **Several tracks.** Files are merged into one index, but a seam between two files
