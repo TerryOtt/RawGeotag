@@ -809,14 +809,15 @@ fn describe_offsets(offsets: &BTreeMap<i32, usize>) -> Option<String> {
         .iter()
         .map(|(&seconds, files)| {
             let offset = FixedOffset::east_opt(seconds).expect("a resolved offset is in range");
-            format!("{offset} ({} files)", count(*files))
+            format!("{offset} ({} file{})", count(*files), plural(*files))
         })
         .collect();
 
-    let tail = if offsets.len() > 1 {
-        "two clocks in one run"
-    } else {
-        "cameras are normally on UTC"
+    let tail = match offsets.len() {
+        2 => "two clocks in one run",
+        3.. => "several clocks in one run",
+        // One zone, and it is not UTC — an all-UTC run returned above.
+        _ => "cameras are normally on UTC",
     };
     Some(format!("{} — {tail}", parts.join(", ")))
 }
@@ -1368,8 +1369,8 @@ mod tests {
     // ---- the timezone note ---------------------------------------------------
     //
     // `describe_offsets` explains which shapes are worth naming and why there is no
-    // flag to silence them. These pin the four corners: silent, a single non-UTC
-    // zone, a mix, and a mix with no UTC in it at all.
+    // flag to silence them. These pin the corners: silent, a single non-UTC zone, a
+    // two-clock mix, a mix with no UTC in it at all, and a mix of more than two.
 
     fn offsets_of(pairs: &[(i32, usize)]) -> BTreeMap<i32, usize> {
         pairs.iter().copied().collect()
@@ -1403,15 +1404,23 @@ mod tests {
         assert!(note.contains("two clocks"), "{note}");
     }
 
-    /// A mix that happens to include no UTC at all is still a mix.
+    /// A mix that happens to include no UTC at all is still a mix. Also the line
+    /// where a single-file zone shows, so it is the one that catches "(1 files)".
     #[test]
     fn two_non_utc_clocks_are_reported_as_a_mix() {
         let note = describe_offsets(&offsets_of(&[(3600, 1), (-25200, 1)])).expect("a mix");
-        assert!(
-            note.contains("-07:00 (1 files), +01:00 (1 files)"),
-            "{note}"
-        );
+        assert!(note.contains("-07:00 (1 file), +01:00 (1 file)"), "{note}");
         assert!(note.contains("two clocks"), "{note}");
+    }
+
+    /// "Two clocks in one run" is a count, not a synonym for "a mix" — three
+    /// bodies on three clocks must not be reported as two.
+    #[test]
+    fn more_than_two_clocks_are_reported_as_several() {
+        let note = describe_offsets(&offsets_of(&[(0, 4), (3600, 2), (-25200, 1)]))
+            .expect("a three-zone mix is reportable");
+        assert!(note.contains("several clocks in one run"), "{note}");
+        assert!(!note.contains("two clocks"), "{note}");
     }
 
     // ---- the summary's arithmetic --------------------------------------------

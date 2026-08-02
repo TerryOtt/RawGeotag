@@ -205,6 +205,8 @@ hand-maintained total is exactly the number that goes stale, and did.
 | a non-raw file resolves silently instead of erroring | `a_file_that_is_not_a_raw_reports_an_error_naming_it` |
 | untimed GPX points kept at the epoch | `points_without_a_timestamp_are_dropped` |
 | the summary drops a category from its skipped total | `every_skip_category_is_both_counted_and_named` |
+| `describe_offsets` calls any mix "two clocks in one run" | `more_than_two_clocks_are_reported_as_several` |
+| the timezone line's file count loses its `plural()` | `two_non_utc_clocks_are_reported_as_a_mix` |
 
 ## Known gaps
 
