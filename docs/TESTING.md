@@ -1,7 +1,7 @@
 # Testing standard
 
-*How the documents themselves are written is [`WRITING.md`](WRITING.md); this file is
-the equivalent standing order for tests.*
+*Three standing orders share one diff: [`REVIEWING.md`](REVIEWING.md) for the code,
+this file for the tests, [`WRITING.md`](WRITING.md) for the prose.*
 
 ## The standing order
 

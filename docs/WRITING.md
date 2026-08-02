@@ -1,5 +1,8 @@
 # Documentation standard
 
+*Three standing orders share one diff: [`REVIEWING.md`](REVIEWING.md) for the code,
+[`TESTING.md`](TESTING.md) for the tests, this file for the prose.*
+
 ## The standing order
 
 > **Every document leads with what its reader came for. Everything else comes after.**
@@ -26,6 +29,7 @@ So the first question for any document is **who opens this, and what were they a
 | `UPDATING.md` | someone about to bump a dependency | whether to update at all, then how |
 | `LIGHTROOM-XMP.md` | someone re-running the comparison after a Lightroom upgrade | the procedure |
 | `CLAUDE.md` | Claude, at the start of every session | the binding constraints |
+| `REVIEWING.md` | someone about to put a change on `main` | the bar it has to clear |
 | this file | someone writing or reviewing a document | the standing order |
 
 Get that wrong and the document reads as though it were written for its author. Both

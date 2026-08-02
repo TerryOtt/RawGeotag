@@ -318,6 +318,8 @@ Output is deterministic: the same input at `--jobs 1`, `2` and `16` produces
 byte-identical sidecars and an identical warning list. ExifTool is used throughout
 as an independent oracle to read the sidecars back and validate them.
 
+[`docs/REVIEWING.md`](docs/REVIEWING.md) is the code-quality bar for anything landing
+on `main` — a branch can be as ugly as it needs to be, `main` has no broken windows.
 [`docs/TESTING.md`](docs/TESTING.md) is the testing standard — what gets run, and
 the rule that decides whether a test is worth having. The short version is that a
 test has to be shown capable of failing before it counts, which is stricter than it

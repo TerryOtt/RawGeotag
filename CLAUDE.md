@@ -7,6 +7,12 @@ design is settled there — CLI shape, crates, module layout, concurrency model.
 re-litigate decisions it already records; if you think one is wrong, say so explicitly
 rather than quietly diverging.
 
+**Read [`docs/REVIEWING.md`](docs/REVIEWING.md) before anything lands on `main`.**
+Standing order: a branch can be as ugly as it needs to be, `main` has no broken
+windows. There is no PR to hide behind here — the workflow commits straight to
+`main`, so self-review at commit time *is* the gate, at the same bar. It carries a
+table of the specific shapes a real review pass found in this codebase.
+
 **Read [`docs/TESTING.md`](docs/TESTING.md) before adding, changing or removing a
 test.** It is the standing order: reach for every branch, and prove every test can
 fail.
