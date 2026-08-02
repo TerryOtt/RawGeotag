@@ -1,0 +1,54 @@
+# The half of docs/REVIEWING.md a machine can check, run where it cannot be skipped.
+#
+# The pre-commit hook in .githooks/ runs the same three checks before a commit is
+# made. This is not redundant with it: a hook can be bypassed with --no-verify, only
+# exists on a clone that ran `git config core.hooksPath .githooks`, and never sees a
+# pull request from a fork. This does.
+#
+# windows-latest rather than the cheaper ubuntu runner, because Windows is the only
+# platform this tool actually ships on -- the storage reasoning throughout CLAUDE.md
+# is about NTFS, and the verification harness is PowerShell. Testing somewhere the
+# tool is never run would be measuring a configuration that does not occur.
+#
+# Deliberately NOT here: scripts/verify-fixtures.ps1. It needs 222 MB of raw
+# photographs that are not in version control, so it cannot run on a clean checkout.
+# That check stays manual and local; see docs/FIXTURES.md.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Least privilege: this workflow only ever reads the checkout.
+permissions:
+  contents: read
+
+# A second push to the same branch makes the first run irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: fmt, clippy, test
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: rustup toolchain install stable --profile minimal --component rustfmt,clippy
+
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+      # --all-targets is the point: without it clippy never sees test code, which is
+      # over 40% of this crate.
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test

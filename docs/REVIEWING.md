@@ -184,3 +184,31 @@ Mechanically, that is `cargo clippy --all-targets -- -D warnings`, `cargo test`,
 `.\scripts\verify-fixtures.ps1` — plus the determinism re-run if the change touched
 the phase structure, the outcome enums or the reporting order. A green suite is the
 floor, not the bar: **clippy has no opinion about any row in the table above.**
+
+### What runs automatically
+
+Two layers, and the second is not redundant with the first:
+
+| | Where | Runs | Skippable |
+|---|---|---|---|
+| `.githooks/pre-commit` | your machine, before the commit exists | fmt, clippy, test | `--no-verify`, and only present if the clone was wired up |
+| `.github/workflows/ci.yml` | GitHub, on push to `main` and on every PR | the same three | no |
+
+The hook is the layer that saves you time, because it catches a problem before it is
+in the history. CI is the layer that cannot be talked out of it, and the only one
+that sees a pull request from a fork.
+
+**Wire the hook up once per clone** — git does not track `.git/hooks`, so a hook
+living only there protects nothing on a fresh checkout:
+
+```
+git config core.hooksPath .githooks
+```
+
+It skips the Rust checks entirely on a docs-only commit, which is most of them here.
+
+**Neither layer runs `verify-fixtures.ps1`**, because it needs 222 MB of raw
+photographs that are not in version control — it would fail on any clean checkout,
+and a check that fails for the wrong reason is how people learn to type
+`--no-verify`. Fixtures stay a manual, local step, and they are the ones that prove
+output has not moved. Run them before anything that touches what gets written.

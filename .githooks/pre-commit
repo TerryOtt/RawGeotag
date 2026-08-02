@@ -1,0 +1,52 @@
+#!/bin/sh
+#
+# Mechanical half of the gate in docs/REVIEWING.md: a branch can be as ugly as it
+# needs to be, main has no broken windows. This catches the part a machine can.
+#
+# Versioned here rather than in .git/hooks, which git does not track -- a hook that
+# only exists on the machine that created it protects nothing on a fresh clone. It
+# is wired up with, once per clone:
+#
+#     git config core.hooksPath .githooks
+#
+# Deliberately NOT run here: scripts/verify-fixtures.ps1. It needs 222 MB of raw
+# photographs that are not in git, so it would fail on any clone without the fixture
+# tree beside it -- and a hook that fails for the wrong reason is how people learn to
+# type --no-verify. Run it by hand before anything that touches output.
+#
+# Known limitation, deliberately not fixed: cargo sees the working tree, not the
+# index, so a partial `git add` checks something other than what is being committed.
+# The fix would be stashing unstaged changes mid-commit, which is a well-known way to
+# lose work. Commit whole files and this never bites.
+#
+# The escape hatch is `git commit --no-verify`. It exists for the case where you know
+# better; if you find yourself reaching for it twice in a row, the hook is not the
+# problem.
+
+set -e
+
+# Docs-only commits are frequent here and gain nothing from a Rust build.
+if ! git diff --cached --name-only --diff-filter=ACMR |
+     grep -qE '\.rs$|^Cargo\.(toml|lock)$'; then
+    exit 0
+fi
+
+fail() {
+    echo ""
+    echo "pre-commit: FAILED on $1 -- see docs/REVIEWING.md"
+    echo "pre-commit: fix it, or bypass deliberately with: git commit --no-verify"
+    exit 1
+}
+
+echo "pre-commit: cargo fmt --check"
+cargo fmt --all -- --check || fail "formatting"
+
+# --all-targets is the point: without it clippy never sees test code, which is over
+# 40% of this crate.
+echo "pre-commit: cargo clippy --all-targets -- -D warnings"
+cargo clippy --all-targets -- -D warnings || fail "clippy"
+
+echo "pre-commit: cargo test"
+cargo test --quiet || fail "tests"
+
+echo "pre-commit: ok"
