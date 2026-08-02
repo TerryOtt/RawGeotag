@@ -140,6 +140,7 @@ for free.
 | 2026-07-31 | gate selection extracted into a function | also reproduced the *pre-extraction* output byte for byte — the stronger result |
 | 2026-08-02 | phase structure, both outcome enums and reporting order reshaped | `cr3-rockies` + `nef-sedona` at `-j 1/2/16`: identical aggregates *and* identical `--verbose` stdout+stderr |
 | 2026-08-02 | end of day, after `skip_breakdown` and the `exif_offset` extraction | same two sets, and the report hashes came back **identical to the pre-refactor run that morning** — a day of restructuring moved no output byte |
+| 2026-08-02 | GPX arguments may be directories (`collect_tracks`) | `cr3-rockies` + `nef-sedona` at `-j 1/2/16`, tracks resolved from a *directory* argument: identical aggregates and reports. The aggregates match the single-named-file runs too, since a photo outside a track is skipped and extra tracks change nothing |
 | 2026-08-02 | fixtures trimmed to two files per set | `cr3-rockies` + `nef-sedona` at `-j 1/2/16` identical; the aggregates moved, as a smaller set must, but no code changed and the sets' distinguishing properties are untouched |
 
 That middle run is why the "diff against previous artifacts" rule exists. Extracting

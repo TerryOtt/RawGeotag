@@ -57,7 +57,7 @@ Three things to expect from that first run:
 rawgeotag <DIR> <GPX>... [OPTIONS]
 
   DIR    parent directory, searched recursively; every supported raw under it is tagged
-  GPX    path to a GPX track file; repeat for a day split across several tracks
+  GPX    a .gpx file, or a directory of them (not recursive); repeat as needed
 
   --utc-offset <±HHMM>     offset for files with no EXIF timezone, e.g. -0700
   --max-gap <SECONDS>      refuse to interpolate across a longer hole [default: 60]
@@ -99,6 +99,22 @@ capture time:
 ```
 rawgeotag ./shoot ./daytime.gpx ./evening.gpx
 ```
+
+**Or just point at the folder holding the trip's tracks:**
+
+```
+rawgeotag ./shoot "./GPX/2025-09 - Malta, Sorrento"
+```
+
+That is the better habit, and not only for the typing. Matching a track to a folder
+by *filename* is the one failure mode this tool cannot detect — a wrongly-paired
+track simply reports every photo as outside its range — and GPX filenames have been
+caught lying about their own dates. Handing over the whole trip and letting capture
+times decide removes the guess. Directory arguments are **not** recursive, so a trip
+folder stays a trip folder.
+
+Under `--verbose` the run lists exactly which tracks it resolved to, and their
+combined span, before it touches a photo.
 
 **Tracks that overlap in time are a fatal error** and nothing is written. Where two
 tracks both cover an instant they can disagree about where you were, and picking

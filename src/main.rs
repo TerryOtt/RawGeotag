@@ -76,8 +76,8 @@ struct Args {
     /// Parent directory, searched recursively
     dir: PathBuf,
 
-    /// Path to the GPX track file. Repeat for a day split across several tracks
-    #[arg(required = true, num_args = 1..)]
+    /// GPX track file, or a directory of them (not recursive). Repeat as needed
+    #[arg(required = true, num_args = 1.., value_name = "GPX")]
     gpx: Vec<PathBuf>,
 
     /// Offset for files with no EXIF timezone, e.g. -0700, +0430
@@ -144,16 +144,23 @@ fn run() -> Result<Outcome> {
 
     let started = Instant::now();
 
-    let track = Track::load(&args.gpx)?;
+    let tracks = collect_tracks(&args.gpx)?;
+    let track = Track::load(&tracks)?;
     if args.verbose {
         let (start, end) = track.span();
+        // Worth listing, not just counting: a directory argument expands to
+        // whatever was in it, and GPX filenames have been seen to lie about their
+        // own dates. The span below is the authority; these are what produced it.
+        for path in &tracks {
+            println!("  track: {}", path.display());
+        }
         // The span is the union of every file given. It is not a claim of
         // continuous coverage — holes between the tracks are still holes, and a
         // photo falling in one is skipped like any other gap.
         println!(
             "Track: {} points from {} file(s), {} to {}",
             count(track.point_count()),
-            args.gpx.len(),
+            tracks.len(),
             format_utc(start),
             format_utc(end)
         );
@@ -580,6 +587,57 @@ fn tally_writes(results: Vec<Written>, verbose: bool) -> Tally {
 /// Materializing into a `Vec` before parallelizing gives rayon contiguous slices
 /// to split, which load-balances far better than bridging a sequential iterator.
 /// It also yields an exact denominator for the progress bar.
+/// Resolve the GPX arguments: each may be a `.gpx` file or a directory of them.
+///
+/// **Not recursive, and that asymmetry with `DIR` is deliberate.** Photos are filed
+/// in a tree — year, then date — so a run wants the whole thing. Tracks are filed
+/// one folder per trip, and recursing would silently pull in neighbouring trips
+/// whose tracks overlap this one. One level is the unit a human means by "the GPX
+/// for this trip".
+///
+/// Sorted within each directory, because argument order is visible: it decides which
+/// of several unreadable files is reported and the order of names in the overlap
+/// error. Left in argument order *between* arguments, for the same reason.
+fn collect_tracks(arguments: &[PathBuf]) -> Result<Vec<PathBuf>> {
+    let mut tracks = Vec::new();
+
+    for argument in arguments {
+        if argument.is_file() {
+            tracks.push(argument.clone());
+            continue;
+        }
+        if !argument.is_dir() {
+            bail!(
+                "{} is neither a GPX file nor a directory",
+                argument.display()
+            );
+        }
+
+        let mut found: Vec<PathBuf> = std::fs::read_dir(argument)
+            .with_context(|| format!("reading GPX directory {}", argument.display()))?
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .filter(|path| {
+                path.is_file()
+                    && path
+                        .extension()
+                        .and_then(|ext| ext.to_str())
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("gpx"))
+            })
+            .collect();
+
+        // An empty directory would otherwise surface much later as "the track
+        // contains no points with timestamps", which names the wrong problem.
+        if found.is_empty() {
+            bail!("no .gpx files in {}", argument.display());
+        }
+
+        found.sort_unstable();
+        tracks.extend(found);
+    }
+
+    Ok(tracks)
+}
+
 /// One raw to process, paired with the format that claims it.
 ///
 /// The format travels with the path because a single run now spans all of them:
@@ -1347,6 +1405,123 @@ mod tests {
     fn skip_counts_carry_thousands_separators() {
         let (_, reasons) = skip_breakdown(&summary_of(0, 1_489, 0, 0, 0));
         assert_eq!(reasons, ["1,489 in track gap"]);
+    }
+
+    // ---- resolving the GPX arguments -----------------------------------------
+    //
+    // A trip's tracks live in one folder and the documented workflow is to pass all
+    // of them at every photo folder, so a directory argument saves enumerating four
+    // or seven paths. It also fits "GPX filenames lie" better than hand-picking:
+    // selecting by name is exactly what that warning says not to trust.
+
+    fn gpx_dir(names: &[&str]) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().expect("creating the scratch directory");
+        for name in names {
+            std::fs::write(dir.path().join(name), "x").expect("creating a test file");
+        }
+        dir
+    }
+
+    fn names_of(paths: &[PathBuf]) -> Vec<String> {
+        paths
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+            .collect()
+    }
+
+    #[test]
+    fn a_gpx_file_argument_is_passed_through_untouched() {
+        let dir = gpx_dir(&["one.gpx", "two.gpx"]);
+        let one = dir.path().join("one.gpx");
+
+        assert_eq!(
+            collect_tracks(std::slice::from_ref(&one)).expect("a real file"),
+            vec![one]
+        );
+    }
+
+    /// **Sorted, and that is load-bearing.** Argument order decides which of several
+    /// unreadable files is reported and the order of names in the overlap error, so
+    /// an expansion that varied with filesystem enumeration would make those
+    /// messages vary run to run.
+    #[test]
+    fn a_directory_expands_to_every_gpx_in_it_sorted() {
+        let dir = gpx_dir(&[
+            "c-third.gpx",
+            "a-first.gpx",
+            "b-second.GPX",
+            "notes.txt",
+            "photo.cr3",
+        ]);
+
+        let tracks = collect_tracks(&[dir.path().to_path_buf()]).expect("the directory has tracks");
+
+        // Case-insensitive on the extension, but the *order* is byte-wise, and
+        // only non-GPX files are dropped.
+        assert_eq!(
+            names_of(&tracks),
+            ["a-first.gpx", "b-second.GPX", "c-third.gpx"]
+        );
+    }
+
+    /// The pre-existing form, kept working: several files named explicitly stay in
+    /// the order they were named, with no sorting applied across arguments.
+    #[test]
+    fn several_gpx_files_stay_in_the_order_they_were_named() {
+        let dir = gpx_dir(&["a.gpx", "b.gpx", "c.gpx"]);
+        let named = ["c.gpx", "a.gpx", "b.gpx"].map(|n| dir.path().join(n));
+
+        let tracks = collect_tracks(&named).expect("three real files");
+
+        assert_eq!(names_of(&tracks), ["c.gpx", "a.gpx", "b.gpx"]);
+    }
+
+    /// Mirrors the multi-file case, and pins something that one cannot: the two
+    /// directories hold names that **interleave alphabetically**, so a global sort
+    /// would produce `a, b, c, d`. Getting `b, d, a, c` is the proof that sorting
+    /// happens *within* each directory and argument order decides the rest.
+    #[test]
+    fn several_directories_are_each_sorted_but_kept_in_argument_order() {
+        let first = gpx_dir(&["d.gpx", "b.gpx"]);
+        let second = gpx_dir(&["c.gpx", "a.gpx"]);
+
+        let tracks = collect_tracks(&[first.path().to_path_buf(), second.path().to_path_buf()])
+            .expect("both directories have tracks");
+
+        assert_eq!(names_of(&tracks), ["b.gpx", "d.gpx", "a.gpx", "c.gpx"]);
+    }
+
+    #[test]
+    fn files_and_directories_can_be_mixed_and_keep_argument_order() {
+        let trip = gpx_dir(&["b.gpx", "a.gpx"]);
+        let extra = gpx_dir(&["z-extra.gpx"]);
+        let loose = extra.path().join("z-extra.gpx");
+
+        let tracks = collect_tracks(&[loose.clone(), trip.path().to_path_buf()])
+            .expect("both arguments resolve");
+
+        // Sorted *within* a directory; argument order preserved *between* arguments,
+        // so the loose file stays first despite sorting last by name.
+        assert_eq!(names_of(&tracks), ["z-extra.gpx", "a.gpx", "b.gpx"]);
+    }
+
+    /// Otherwise this surfaces much later as "the track contains no points with
+    /// timestamps", which names the wrong problem entirely.
+    #[test]
+    fn a_directory_with_no_gpx_is_an_error_that_says_so() {
+        let dir = gpx_dir(&["notes.txt", "IMG_0001.CR3"]);
+
+        let error = collect_tracks(&[dir.path().to_path_buf()]).expect_err("no tracks in there");
+        let rendered = format!("{error:#}");
+        assert!(rendered.contains("no .gpx files"), "{rendered}");
+    }
+
+    #[test]
+    fn a_path_that_is_neither_file_nor_directory_is_rejected() {
+        let dir = gpx_dir(&[]);
+        let missing = dir.path().join("nope.gpx");
+
+        assert!(collect_tracks(&[missing]).is_err());
     }
 
     // ---- the walk: which formats a run picks up ------------------------------

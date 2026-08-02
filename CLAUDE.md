@@ -930,6 +930,10 @@ when the *other* limit shows the subject was barely moving, and say so when repo
 - **Pass every disjoint track to every folder.** Nothing then depends on matching a GPX
   filename to a folder name — which is the one failure mode the tool cannot detect,
   since a wrongly-paired track just reports everything as outside-track.
+  **A `<GPX>` argument may now be the trip's track *directory*** rather than seven
+  enumerated paths, which is what this idiom was always asking for. Not recursive, so
+  a trip folder stays one trip. `--verbose` lists what it resolved to before touching
+  a photo — worth reading, given the filenames-lie entry below.
 - **When one track overlaps others** — a multi-day cruise log spanning port days — the
   overlap check makes a single run impossible, by design. Run the *specific* tracks
   first, then the broad one **without `--force`**, so the more authoritative fix wins

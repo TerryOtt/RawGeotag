@@ -20,7 +20,7 @@ CR3 shipped first and **Nikon NEF has since been added**, which is what put the 
 rawgeotag <DIR> <GPX>... [OPTIONS]
 
   DIR    parent directory, searched recursively; every supported raw under it is tagged
-  GPX    path to a GPX track file; repeat for a day split across several tracks
+  GPX    a .gpx file, or a directory of them (not recursive); repeat as needed
 
   --utc-offset <±HHMM>     offset for files with no EXIF timezone, e.g. -0700, +0430
   --max-gap <SECONDS>      refuse to interpolate across a longer hole [default: 60]
