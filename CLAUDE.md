@@ -3,9 +3,13 @@
 A Rust CLI that geotags camera raw files from one or more GPX tracks, writing XMP sidecars.
 
 **Read [`docs/PLAN.md`](docs/PLAN.md) before proposing or writing anything.** The
-design is settled there — CLI shape, crates, module layout, concurrency model, and
-verification plan. Do not re-litigate decisions it already records; if you think one
-is wrong, say so explicitly rather than quietly diverging.
+design is settled there — CLI shape, crates, module layout, concurrency model. Do not
+re-litigate decisions it already records; if you think one is wrong, say so explicitly
+rather than quietly diverging.
+
+**Read [`docs/TESTING.md`](docs/TESTING.md) before adding, changing or removing a
+test.** It is the standing order: reach for every branch, and prove every test can
+fail.
 
 ## Project mantra
 
@@ -375,9 +379,11 @@ the historical one. The fixture aggregates cover that half for free.
 **Mutation-checking, when you add a test for an invariant the compiler cannot see.**
 Break the thing it guards, confirm that test fails, revert. Green proves the code is
 right today; it does not prove the test would notice if the code stopped being right.
-Verification item 10 in the plan carries the table of mutations already tried and the
-failure shape to watch for — a change that compiles, passes everything else, and
-silently alters which photos get tagged.
+
+**[`docs/TESTING.md`](docs/TESTING.md) is the standing order here** — the bar, the
+doctrine on branches no fixture can reach (there are several, and they stay green
+whether they work or not), the running mutation log, and the gaps left open on
+purpose. Read it before adding or removing a test.
 
 **Using ExifTool as an oracle:** it reads our sidecars back correctly and `-validate`
 is OK. Note it calls the XMP `exif:GPSTimeStamp` property **`GPSDateTime`** — asking

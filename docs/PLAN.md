@@ -369,95 +369,17 @@ Exit non-zero if any file errored or the gate fired; zero if everything was eith
 
 ## Verification
 
-1. `cargo build --release`, `cargo clippy --all-targets -- -D warnings`. **`--all-targets` is not optional** — without it clippy skips test code, which is over 40% of this crate's lines.
-2. **Unit tests** (`track.rs`, no fixtures needed): exact-timestamp hit; midpoint interpolation against hand-computed values; before-first and after-last both skip; antimeridian crossing stays near ±180; missing `ele` on one bracketing point suppresses altitude.
-3. **Unit test** (`xmp.rs`): a known lat/lon renders to the exact expected `DDD,MM.mmk` strings, including a southern/western hemisphere case and a negative altitude.
-4. **Unit test** (`format.rs`): iterate `RawFormat::ALL` and assert every declared extension round-trips through `from_extension`, in mixed case. This test fails if a new variant is added without a table entry, catching the one gap the compiler cannot. A second test pins each format's `read_strategy` to the value verified against real files — the compiler cannot tell that a `Streaming`/`WholeFile` choice is wrong, but every file of that format fails at runtime if it is. **Unit test** (`raw.rs`): `choose_offset` over all four combinations of (EXIF zone, `--utc-offset`) — EXIF wins, CLI fills in, disagreement is reported but EXIF still applied, and **neither present refuses the run**. That last one is the gate rule, and it is the branch every Nikon D3300 file takes.
-5. **End-to-end against real files — every supported format, every time.** Run `.\scripts\verify-fixtures.ps1` from the repo root, which covers all three fixtures and exits non-zero on any failure. **Do not verify only the format you are working on:** `read_strategy` sends CR3 through `Streaming` and NEF through `WholeFile`, different code in `raw.rs`, so one passing says nothing about the other. The fixtures also differ by timezone case (`+00:00`, `+01:00`, none) because a dropped EXIF offset would pass the first and third while misplacing the second by ~50 km — see the fixture README. Separately, confirm sidecars land next to the raw with the right name; pass **two** non-overlapping tracks for one directory and confirm the merged span covers both; then pass two overlapping ones and confirm the run aborts with no sidecars written. **Every new format needs a fixture of its own** — NEF failed in a way no unit test or crate documentation would have revealed.
-6. **Cross-check against ExifTool**, which is installed and is an independent implementation:
-   - `exiftool -DateTimeOriginal -OffsetTimeOriginal <file>.cr3` should match what the tool extracted.
-   - `exiftool <file>.xmp` should read back the GPS coordinates; compare against the track for that timestamp.
-   - This is a test-time sanity check only — no ExifTool call exists anywhere in the shipped program.
-7. **Determinism under parallelism.** ✅ This is the main regression risk the concurrency design introduces — a worker printing directly, or a tally that depends on completion order.
+**Moved to [`TESTING.md`](TESTING.md)**, which is now the project's testing standard:
+the standing order, the mutation-checking bar, the doctrine on branches no fixture can
+reach, what to run, and the running mutation and determinism logs.
 
-   **Re-run it after any change to the phase structure, the outcome enums, or the reporting order.** Two comparisons, not one: across `--jobs` values, **and against the previous run's artifacts**. The second matters because a bug that reorders output *consistently* at every `-j` passes the first and fails only the second. Since the three fixture aggregates in `verify-fixtures.ps1` are themselves previous artifacts, `verify-fixtures.ps1` covers the historical half for free.
+It lived here for as long as this document was the only place decisions were written
+down. It had grown to a fifth of the file and was still growing — two tables were
+appended in a single day — and a standing order about how to work is a different genre
+from a design that is settled and finished. What remains in this document is the
+design; how it is held to account is next door.
 
-   Runs so far, each byte-identical at every job count tried:
-
-   | When | After | Scope |
-   |---|---|---|
-   | 2026-07-31 | first full verification | 3,883 CR3s at `-j 1/2/16`; identical console output, 1,489-line warning list, and SHA-256 manifest over 2,394 sidecars |
-   | 2026-07-31 | gate selection extracted into a function | also reproduced the *pre-extraction* output byte for byte — the stronger result |
-   | 2026-08-02 | phase structure, both outcome enums and reporting order all reshaped | `cr3-rockies` + `nef-sedona` at `-j 1/2/16`; identical aggregates *and* identical `--verbose` stdout+stderr |
-
-   The 2026-07-31 re-run is why the "diff against previous artifacts" rule exists: extracting a function that owns a `sort` is exactly what this check polices, and a careless `sed` during that work also removed an unrelated sort in `collect_paths`, which nothing else would have caught before release.
-8. **Scaling:** ✅ done — see the measured note under Concurrency. **Do not expect more threads to be faster.** On local storage throughput *peaks at `-j 2` and degrades above it*, which is why that is the default; a slowdown at `-j 8` is the expected result, not a bug. Over network storage the opposite holds and parallelism is worth ~12× — **for CR3**. A `WholeFile` format is bandwidth-bound instead and gains only ~2×, so re-measure per format rather than assuming these transfer. If you re-measure, evict the page cache first and delete existing sidecars, or you will be timing RAM and cheap overwrites rather than the real workload.
-9. **Behavior checks:** re-run and confirm existing sidecars are skipped with warnings; re-run with `--force` and confirm overwrite; `--dry-run` writes nothing; a deliberately wrong `--utc-offset` against a CR3 that has `OffsetTimeOriginal` fires the conflict warning *and still uses the EXIF value*; omitting `--utc-offset` on naive-timestamp files trips the gate with no sidecars written.
-
-10. **Mutation-check any test that guards an invariant the compiler cannot see.** Write the test, then *break the thing it guards* and confirm it fails — ideally that it, and only it, fails. Revert immediately. A green test proves the code passes today; it does not prove the test would notice if the code stopped being right, and the tests worth the most here are exactly the ones whose subject is a silent behavior change rather than a crash.
-
-    **No running total is kept here on purpose** — a hand-maintained count of how
-    many times this has been done is exactly the number that goes stale, and it
-    did. The table below is a reference of mutations already tried and what caught
-    them; append to it, and do not count it.
-
-    | Mutation | Caught by |
-    |---|---|
-    | `choose_offset`'s `(None, None)` arm defaults to UTC instead of gating | `no_exif_zone_and_no_cli_offset_gates_the_run` |
-    | gap comparison `>` loosened to `>=` | `a_gap_exactly_at_the_time_limit_is_still_bridged` |
-    | `default_value_t = GapLimits::DEFAULT_GAP_SECONDS` replaced by a bare literal | `the_cli_gap_default_matches_the_shipped_limit` |
-    | `gate()` no longer sorts the zoneless paths it returns | `the_gate_reports_every_zoneless_file_in_sorted_order` |
-    | `parse_offset` reverts to stripping colons wherever they appear | `colons_are_only_accepted_between_the_hours_and_the_minutes` |
-    | the directory walk filters on a hardcoded format rather than the run's | `a_run_for_one_format_does_not_collect_another` |
-    | `tally_writes` collects per-file positions regardless of `--verbose` | `per_file_positions_are_collected_only_when_verbose` |
-    | `!settings.force` loses its `!`, so an ordinary run overwrites sidecars | `an_existing_sidecar_is_skipped_and_left_untouched_without_force` |
-    | `settings.dry_run` inverted, so `--dry-run` writes and a real run does not | `dry_run_reports_a_tag_but_creates_no_file` |
-    | `force` and `dry_run` swapped in `WriteSettings::from_args` | `write_settings_carry_the_flags_they_were_given` |
-    | `collect_paths` loses its `sort_unstable` | `collect_paths_finds_matching_files_recursively_and_sorts_them` |
-    | `exif_offset` ignores the `Aware` shape and returns only the paired tag | `a_merged_aware_timestamp_supplies_its_own_offset`, `an_aware_timestamp_wins_over_a_paired_offset_tag` |
-    | `exif_offset` drops the paired-tag fallback | `a_naive_timestamp_falls_back_to_the_paired_offset_tag` |
-
-    **The `Aware` row is the one that justifies the whole practice.** Before those
-    tests existed, a version of `exif_offset` that ignored its `datetime` argument
-    entirely passed **all 81 unit tests and all three fixture aggregates** — measured,
-    not assumed. Every CR3 and NEF nom-exif returns is `Naive`, so no photograph on
-    disk can reach that arm; JPEG is the format that yields `Aware`, and this tool
-    does not read JPEG. **A fixture suite cannot cover a branch no supported input
-    reaches**, which is exactly where a unit test over a hand-built value is the only
-    option. Watch for the same shape wherever code is defensive about a case the
-    current formats do not produce.
-
-    A deliberate sweep for others followed, and found four more. Each was confirmed
-    unreachable by mutating it and watching the whole suite pass, then closed:
-
-    | Branch no fixture reaches | Why the fixtures cannot reach it | Now held by |
-    |---|---|---|
-    | the `CreateDate` / `OffsetTimeDigitized` fallback pair | every fixture file carries `DateTimeOriginal`, so the first tag always wins | `capture_tags_are_the_spec_pairs_in_priority_order` |
-    | `MediaSource` failing to open or parse | every fixture file is a valid raw | `a_file_that_is_not_a_raw_reports_an_error_naming_it`, `an_empty_file_is_an_error_rather_than_a_panic` |
-    | dropping GPX points that carry no `<time>` | the fixture tracks are fully timestamped | `points_without_a_timestamp_are_dropped` |
-    | the summary's skipped total and its breakdown | the harness compares sidecars, never the printed summary | `every_skip_category_is_both_counted_and_named` |
-
-    The last of those was also fixed structurally rather than only tested: the total
-    and the reason list were a five-term sum and five separate `if` blocks, so a new
-    outcome had to be remembered in two places. Both now derive from one array in
-    `skip_breakdown`.
-
-    **Still uncovered, and recorded rather than papered over:** `nom_exif::Error::
-    ExifNotFound` mapping to `Capture::NoCaptureTime`. Reaching it needs a file
-    nom-exif recognises as media but that carries no EXIF at all; a text file or an
-    empty file fails earlier, at `MediaSource::open`, which is the path the two tests
-    above cover. Synthesising a valid-but-EXIF-less media file is possible but the
-    fixture would be doing more work than the branch is worth — it changes a per-file
-    diagnostic, not which photos get tagged.
-
-    **That last row is the one worth reading the detail of, because the first
-    attempt at it was decorative.** The test originally used plainly alphabetical
-    filenames, so `WalkDir` already yielded them in sorted order and deleting the
-    sort changed nothing — it passed the mutation and proved nothing. It now uses
-    two names differing only in case: NTFS enumerates case-insensitively while
-    `PathBuf`'s `Ord` is byte-wise, so only an explicit sort can produce the
-    asserted order. **A test whose subject is an ordering has to be built on inputs
-    the underlying source does not already order for you**, or it is measuring the
-    filesystem rather than the code.
-
-    That last one is the shape to watch for: it compiles, passes every other test, and quietly changes which photos get tagged. Cross-module agreements — a CLI flag against the constant it is supposed to mirror, a `read_strategy` against the format it describes — are where this pays, because nothing else is checking them. **If a mutation produces no failure, the test is decorative; fix it then, while you still know what it was meant to catch.**
+The unit tests each module must keep covered are not listed there either, because
+`cargo test` is the authoritative inventory and a hand-written list of them went stale
+three times. What `TESTING.md` records instead is the *rule* that decides whether a
+test is worth having.

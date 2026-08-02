@@ -90,6 +90,8 @@ cargo clippy --all-targets -- -D warnings
 The release build comes first because `verify-fixtures.ps1` runs
 `target\release\rawgeotag.exe` and throws if it is not there.
 
+See [`TESTING.md`](TESTING.md) for what each of those checks is for.
+
 **`cargo test` passing is not enough on a dependency bump.** The unit tests use
 synthetic data; the fixtures use 100 real CR3s and NEFs across three timezone cases,
 and they compare byte-for-byte output. A dep that changed how a GPX timestamp parses or

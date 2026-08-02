@@ -3,7 +3,8 @@
 Real camera files, pinned, for the end-to-end checks that must write sidecars.
 
 **Run `scripts\verify-fixtures.ps1`.** It covers every supported format in one pass
-and exits non-zero on any failure.
+and exits non-zero on any failure. [`TESTING.md`](TESTING.md) is the standard these
+serve — including the blind spot they structurally cannot cover.
 
 ## What lives where, and why it is split
 

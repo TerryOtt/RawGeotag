@@ -81,8 +81,12 @@ Verified against real shoots and their GPX tracks, on two camera bodies:
 
 Output is deterministic: the same input at `--jobs 1`, `2` and `16` produces
 byte-identical sidecars and an identical warning list. ExifTool is used throughout
-as an independent oracle to read the sidecars back and validate them. See
-[`docs/PLAN.md`](docs/PLAN.md) for the full verification plan.
+as an independent oracle to read the sidecars back and validate them.
+
+[`docs/TESTING.md`](docs/TESTING.md) is the testing standard — what gets run, and
+the rule that decides whether a test is worth having. The short version is that a
+test has to be shown capable of failing before it counts, which is stricter than it
+sounds and has caught more than one test that could not.
 
 ## Build
 
