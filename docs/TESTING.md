@@ -145,6 +145,7 @@ for free.
 | 2026-08-02 | reporting reshaped: `print_ignored`, and column widths moved out of the `describe_*` helpers | `cr3-rockies` + `nef-sedona` at `-j 1/2/16`: identical at every job count, aggregates unchanged. The Rockies *report* hash moved and Sedona's did not, which is the fix landing exactly where expected — Sedona runs all-UTC and prints no `Timezone` line to reformat |
 | 2026-08-02 | GPX arguments may be directories (`collect_tracks`) | `cr3-rockies` + `nef-sedona` at `-j 1/2/16`, tracks resolved from a *directory* argument: identical aggregates and reports. The aggregates match the single-named-file runs too, since a photo outside a track is skipped and extra tracks change nothing |
 | 2026-08-02 | fixtures trimmed to two files per set | `cr3-rockies` + `nef-sedona` at `-j 1/2/16` identical; the aggregates moved, as a smaller set must, but no code changed and the sets' distinguishing properties are untouched |
+| 2026-08-02 | walk-error reporting hoisted ahead of the early returns | all three fixtures at `-j 1/2/16`: identical aggregates, matching the recorded values, and identical `--verbose` output |
 
 That middle run is why the "diff against previous artifacts" rule exists. Extracting
 a function that owns a `sort` is exactly what this check polices — and a careless

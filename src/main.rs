@@ -160,6 +160,14 @@ fn run() -> Result<Outcome> {
         errors: walk_errors,
     } = collect_paths(&args.dir)?;
 
+    // Reported here, not with the per-file warnings after Phase B: these are about
+    // paths the walk could not read, and they must reach the two early returns
+    // below — the empty-tree return used to swallow them and exit clean, reading
+    // as "no raws there" when the truth was "could not look".
+    for error in &walk_errors {
+        eprintln!("warning: {error}");
+    }
+
     if files.is_empty() {
         println!(
             "Scanned  {:>7} raw files under {}",
@@ -168,7 +176,11 @@ fn run() -> Result<Outcome> {
         );
         // The only signal that a whole shoot was invisible rather than absent.
         print_ignored(&ignored);
-        return Ok(Outcome::Clean);
+        return if walk_errors.is_empty() {
+            Ok(Outcome::Clean)
+        } else {
+            Ok(Outcome::HadFailures)
+        };
     }
     let scanned = files.len();
     let by_format = tally_formats(&files);
@@ -221,10 +233,6 @@ fn run() -> Result<Outcome> {
     // readable on its own.
     warnings.extend(tally.warnings);
     let failed = read_failures + tally.failed;
-
-    for error in &walk_errors {
-        eprintln!("warning: {error}");
-    }
 
     let mut details = tally.details;
     details.sort_unstable();
