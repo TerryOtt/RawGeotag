@@ -170,25 +170,36 @@ The policy is not licence to relitigate. Specifically:
 - **Verbosity that buys clarity.** This project takes the obvious mechanism over the
   clever one on purpose. Longer and duller is not a window.
 
-## A review is always all three
+## A review is always all four
 
-**"Do a deep dive review" means code, code comments, and docs — every time, without
-being asked for them separately.** They are one request, not three, and the reason is
-that they fail together: an extension argument removed from the code leaves stale
-invocations in the README, a comment naming a function that no longer exists, and a
-sample output that no longer matches. Reviewing one and not the others just moves the
-broken window somewhere less visible.
+**"Do a deep dive review" means all four of these, every time, without being asked
+for them separately:**
 
-The same applies in the other direction. **Changing any one of the three triggers a
-look at the other two**, because a change rarely stays in its lane:
+1. **Code**
+2. **Unit tests** — held to [`TESTING.md`](TESTING.md), not merely "they pass"
+3. **Code comments** — in the code *and* in the tests
+4. **Docs** — `docs/` *and* `CLAUDE.md`
 
-| A change to… | …routinely staled |
+They are one request, not four, because they fail together. Removing the extension
+argument left stale invocations in the README, a comment naming a function that no
+longer existed, and a sample output that no longer matched. Reviewing one dimension
+and not the others just moves the broken window somewhere less visible.
+
+The same applies in the other direction. **Changing any one of the four is reason to
+look at the other three**, because a change rarely stays in its lane:
+
+| A change to… | …routinely stales |
 |---|---|
-| code | comments naming what moved, and every doc showing a command or sample output |
-| comments | nothing else, but they drift from the code fastest of the three |
-| docs | little, though a corrected fact often belongs in a code comment too |
+| code | tests pinning the old shape; comments naming what moved; every doc showing a command or a sample output |
+| unit tests | the comments inside them, which are what explain why a case exists at all; and `TESTING.md`, if a gap opened or closed |
+| comments | nothing else, but they drift from the code faster than anything else here |
+| docs | little, though a fact corrected in one usually belongs in a code comment too |
 
-Both directions have been demonstrated here more than once in a single day.
+**The test dimension is not "did they pass".** A single day produced a test that
+passed its own mutation check and therefore guarded nothing, a test wholly subsumed
+by its neighbour, and a bulk edit that silently deleted ten of them — none of which a
+green suite would have mentioned. Every one of those was found by reading the tests
+as an artifact in their own right.
 
 ## Before you push to main
 
