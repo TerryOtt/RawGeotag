@@ -126,19 +126,16 @@ so it chains: `cargo test && .\scripts\verify-fixtures.ps1`.
 Three things worth knowing before the first run:
 
 - **The 3.7 GB of raw photos are not in git** — only the script and its per-file
-  manifests are. The script looks for the tree as a **sibling of the checkout**, so
-  the default needs no arguments as long as one is there. From a checkout with no
-  tree beside it, point at one that has:
+  manifests are. The script expects the tree as a **sibling of the checkout**, so on
+  this machine it needs no arguments; from a checkout without one, point at a tree
+  that exists:
 
   ```
   .\scripts\verify-fixtures.ps1 -FixtureRoot <path-to-a-RawGeotag-fixtures-tree>
   ```
 
-  **A second checkout means a second fixture tree, and the two are independent** — a
-  rebuilt or corrected fixture has to be re-copied to the other, or the same code
-  produces different aggregates in the two of them. `-CheckSources` is what tells you
-  they have diverged, and is worth running after any copy.
-  [`FIXTURES.md`](FIXTURES.md) has the rebuild recipe if a tree is ever lost.
+  [`FIXTURES.md`](FIXTURES.md) owns the rest: how the tree is laid out, why a second
+  checkout needs a second one, and the rebuild recipe if one is ever lost.
 - **It deletes `.xmp` files inside the fixture directories**, before and after each run.
   That is required — a leftover sidecar is *skipped* rather than rewritten and would
   silently change the aggregate — and it is confined to the three fixture folders. It is

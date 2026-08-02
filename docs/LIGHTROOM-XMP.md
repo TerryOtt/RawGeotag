@@ -141,7 +141,7 @@ decode both to decimal degrees rather than diffing strings.
 
 Agreement with rawgeotag: **0.02-0.12 m on CR3, 0.33-0.53 m on NEF**, altitude usually
 exact and 0.245 m at worst. The NEF gap is sub-second capture times — both cameras
-record `SubSecTimeOriginal`, Lightroom honours it, we truncate to whole seconds. See
+record `SubSecTimeOriginal`, Lightroom honors it, we truncate to whole seconds. See
 `CLAUDE.md` for why that is not worth adopting.
 
 **Earlier eras, for the stability argument:** `Adobe XMP Core 5.6-c140` (2019, on `Q:\`

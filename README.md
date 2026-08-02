@@ -4,16 +4,15 @@ A Rust CLI that geotags camera raw files from one or more [GPS Exchange Format][
 (GPX) tracks, **so that Adobe Lightroom Classic picks the coordinates up when the
 images are imported.**
 
-That is the goal, stated narrowly on purpose. Raw files carry a capture timestamp but
-no location; a GPS logger records a track over the same period. RawGeotag correlates
-the two by time, linearly interpolating position between track points, and writes the
-result as an [Extensible Metadata Platform][xmp] (XMP) sidecar next to each raw file —
-in the form current Lightroom Classic writes and reads, so an import lands already
-positioned with no round trip through Lightroom's Map module.
+Raw files carry a capture timestamp but no location; a GPS logger records a track over
+the same period. RawGeotag correlates the two by time, linearly interpolating position
+between track points, and writes the result as an [Extensible Metadata Platform][xmp]
+(XMP) sidecar next to each raw file — in the form current Lightroom Classic writes and
+reads, so an import lands already positioned with no round trip through the Map module.
 
-**Other uses are plausible but incidental.** The sidecars are ordinary XMP and other
-tools may well read them, but Lightroom is the only consumer this is built and verified
-for, and the only one a conflict is resolved in favour of. See
+**That goal is narrow on purpose.** The sidecars are ordinary XMP and other tools may
+well read them, but Lightroom is the only consumer this is built and verified for, and
+the only one a conflict is resolved in favor of. See
 [XMP sidecars](#xmp-sidecars-and-who-they-are-written-for) for what that does and does
 not promise.
 
@@ -59,43 +58,6 @@ immediate and unrecoverable, and there is no undo. The common reason for wanting
 re-running a pass to get different results — is better served by **copying the photos
 to a temp directory and working there.** Nothing about the output depends on where the
 raws live, so a scratch copy costs you a copy and nothing else.
-
-## XMP sidecars, and who they are written for
-
-Each sidecar takes the Adobe naming convention — `IMG_1234.CR3` → `IMG_1234.xmp` — and
-holds GPS coordinates, altitude and a timestamp as `exif:` properties in an ordinary
-attribute-form RDF packet. Nothing exotic; ExifTool reads them back and `-validate`
-passes.
-
-XMP is standardized as [ISO 16684-1][iso] and published by Adobe as the [XMP
-Specifications][xmp]; sidecar files specifically are the subject of Part 3, *Storage in
-Files*. Worth knowing that the spec leaves a great deal optional — the packet wrapper
-and property set here are both places where conforming implementations legitimately
-differ — which is why conformance alone is not the bar this tool is held to.
-
-**The explicit target is current Adobe Lightroom Classic.** The intended workflow is to
-geotag *before* import, so photos arrive in the catalog already positioned. Output was
-verified against **Lightroom Classic 15.4.1** by geotagging the same photos from the
-same tracks in Lightroom itself and diffing: the coordinate encoding, GPS namespace,
-`GPSVersionID` and serialization form all match what Lightroom writes, and positions
-agree to **0.02–0.12 m on CR3 and 0.33–0.53 m on NEF**. (That residual is sub-second
-capture times — Lightroom uses `SubSecTimeOriginal`, this tool truncates to whole
-seconds. It is an order of magnitude inside the 5 m rule.)
-
-**Caveat emptor beyond that.** Two limits worth being explicit about:
-
-- **Older Lightroom is untested.** The GPS encoding has not changed across Adobe XMP
-  Core 5.6-c140 (2019), 7.0-c000 (2024) and 15.4.1, which is reason for optimism and
-  not evidence.
-- **Other XMP consumers are untested entirely** — Capture One, Bridge, digiKam,
-  darktable, Photo Mechanic. The packet is deliberately conventional, so there is no
-  particular reason to expect trouble, but no one has checked.
-
-**Where they conflict, Lightroom wins.** The packet is not changed except to follow a
-change in what current Lightroom emits — that is the one thing that justifies touching
-it. If some other tool wants a different spelling of the same data, that is a
-compatibility request, not a bug in this one. See
-[`docs/LIGHTROOM-XMP.md`](docs/LIGHTROOM-XMP.md) for the comparison method and results.
 
 ## Status
 
@@ -177,6 +139,12 @@ optional. NEF also costs more to read — see
 rawgeotag ./shoot nef ./track.gpx --utc-offset +0000
 ```
 
+**Anything else needs work, and how much depends on the format.** Adding one the
+EXIF parser already reads — Fujifilm RAF, Phase One IIQ, TIFF — is a row in a data
+table. Sony ARW, DNG, ORF, PEF and RW2 it cannot read at all, and those would need a
+different parser. See the Format extensibility section of
+[`docs/PLAN.md`](docs/PLAN.md).
+
 A day is often split across several tracks — a driving log and a separate evening
 walk. Pass them all and each photo is matched against whichever one covers its
 capture time:
@@ -190,12 +158,6 @@ tracks both cover an instant they can disagree about where you were, and picking
 one would make the geotag depend on the order you listed the files. Run overlapping
 tracks as separate passes instead — photos outside a track are skipped, so a later
 pass tags only what the earlier one left alone.
-
-Adding another format is a small change to a data table *for anything the EXIF
-parser already reads* — which also covers Fujifilm RAF, Phase One IIQ and TIFF.
-Sony ARW, DNG, ORF, PEF and RW2 are not readable by that parser at all and would
-need a different one. See the Format extensibility section of
-[`docs/PLAN.md`](docs/PLAN.md).
 
 ### Behavior worth knowing
 
@@ -226,6 +188,43 @@ need a different one. See the Format extensibility section of
 - **Exit code** is non-zero if any file errored or the run was gated; deliberate
   skips are still a clean exit.
 
+## XMP sidecars, and who they are written for
+
+Each sidecar takes the Adobe naming convention — `IMG_1234.CR3` → `IMG_1234.xmp` — and
+holds GPS coordinates, altitude and a timestamp as `exif:` properties in an ordinary
+attribute-form RDF packet. Nothing exotic; ExifTool reads them back and `-validate`
+passes.
+
+XMP is standardized as [ISO 16684-1][iso] and published by Adobe as the [XMP
+Specifications][xmp]; sidecar files specifically are the subject of Part 3, *Storage in
+Files*. Worth knowing that the spec leaves a great deal optional — the packet wrapper
+and property set here are both places where conforming implementations legitimately
+differ — which is why conformance alone is not the bar this tool is held to.
+
+**The explicit target is current Adobe Lightroom Classic.** The intended workflow is to
+geotag *before* import, so photos arrive in the catalog already positioned. Output was
+verified against **Lightroom Classic 15.4.1** by geotagging the same photos from the
+same tracks in Lightroom itself and diffing: the coordinate encoding, GPS namespace,
+`GPSVersionID` and serialization form all match what Lightroom writes, and positions
+agree to **0.02–0.12 m on CR3 and 0.33–0.53 m on NEF**. (That residual is sub-second
+capture times — Lightroom uses `SubSecTimeOriginal`, this tool truncates to whole
+seconds. It is an order of magnitude inside the 5 m rule.)
+
+**Caveat emptor beyond that.** Two limits worth being explicit about:
+
+- **Older Lightroom is untested.** The GPS encoding has not changed across Adobe XMP
+  Core 5.6-c140 (2019), 7.0-c000 (2024) and 15.4.1, which is reason for optimism and
+  not evidence.
+- **Other XMP consumers are untested entirely** — Capture One, Bridge, digiKam,
+  darktable, Photo Mechanic. The packet is deliberately conventional, so there is no
+  particular reason to expect trouble, but no one has checked.
+
+**Where they conflict, Lightroom wins.** The packet is not changed except to follow a
+change in what current Lightroom emits — that is the one thing that justifies touching
+it. If some other tool wants a different spelling of the same data, that is a
+compatibility request, not a bug in this one. See
+[`docs/LIGHTROOM-XMP.md`](docs/LIGHTROOM-XMP.md) for the comparison method and results.
+
 ## Performance
 
 **`--jobs` defaults to 2.** That is well below the core count, and deliberate: the
@@ -235,10 +234,6 @@ opposite answers.
 The numbers below are CR3. **NEF behaves differently enough to have its own section
 at the end** — read [NEF is a different shape](#nef-is-a-different-shape) before
 tuning `-j` for a Nikon import.
-
-These are a summary. The full measurement record, including the methodology each
-figure was taken under, lives in `CLAUDE.md`'s *Measured behavior* section — correct
-the two together.
 
 Measured on a real shoot — 3,883 Canon R5 CR3s (188 GB) on local NVMe, 20 logical
 cores, creating 2,394 sidecars from scratch:
@@ -300,6 +295,10 @@ NEF**, until the wire is the limit.
 And the read stops being the cheap part of the run. A NEF import moves as much data
 as the files themselves occupy, so on any storage it is the reads, not the sidecar
 writes, that set the wall clock.
+
+*Everything above is a summary.* `CLAUDE.md`'s *Measured behavior* section carries
+the full record, including the methodology behind each figure; the two are corrected
+together.
 
 ## Design constraints
 

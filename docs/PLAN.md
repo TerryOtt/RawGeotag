@@ -42,18 +42,14 @@ Actions taken:
    - Optimize for wall-clock time; the work is parallel by design.
    - Readable and maintainable over clever; no surprises for an experienced Rust reviewer.
    - Design decisions are settled in `docs/PLAN.md` — read it before proposing changes.
-
-   > **"Keep it brief" did not survive, and that was a decision rather than a
-   > drift — recorded 2026-08-02 because the instruction above and the artifact
-   > had been disagreeing silently.** CLAUDE.md is now the longest document in the
-   > repo and loads into every session. What it grew into is not a summary of this
-   > plan but the thing this plan cannot be: the record of what real data did to
-   > the design — the CR3 timezone trap, NEF's `read_strategy`, the measured `-j`
-   > behavior, the storage rules. Every one of those cost a session to discover and
-   > would cost another to rediscover, which is the trade being made against its
-   > length. **The standard for adding to it is therefore "would a session
-   > otherwise repeat this mistake", not "is this true".**
 6. **Initial commit** on `main`.
+
+> **Item 5's "keep it brief" did not survive, and that was a decision rather than a
+> drift** (noted 2026-08-02, because instruction and artifact had been disagreeing
+> silently). CLAUDE.md became the record of what real data did to the design — the CR3
+> timezone trap, NEF's `read_strategy`, the measured `-j` behavior — which is the one
+> thing this plan cannot be, and each entry cost a session to learn. **The bar for
+> adding to it is "would a session otherwise repeat this mistake", not "is this true".**
 
 No remote is configured — this is a local repository unless a GitHub remote is requested separately.
 
@@ -138,6 +134,11 @@ For the formats nom-exif does not read at all, the pure-Rust alternative is `raw
 
 So the seam is placed where variation genuinely lives: **extension mapping and per-format tag preferences**, expressed as an enum with a data table.
 
+**The sketch below is abridged and `format.rs` is authoritative** — it was written
+for one format and updated when NEF landed, so the shape is right but the bodies are
+not. Read the real file before adding a format; `read_strategy` in particular is easy
+to leave out of a sketch and impossible to leave out of a working format.
+
 ```rust
 /// A capture-time tag paired with the tag carrying its UTC offset.
 ///
@@ -207,15 +208,9 @@ impl RawFormat {
 }
 ```
 
-**`format.rs` is authoritative, not this block.** It was written as a
-single-format sketch and updated once NEF landed; the shape is right but the
-bodies are abridged. Read the real file before adding a format — in particular
-`read_strategy` is easy to leave out of a sketch and impossible to leave out of a
-working format.
-
 **Adding a format is then:** add the variant → the compiler flags every `match` that no longer compiles → fill in those arms → add a fixture test against a real file of that format. Forgetting a spot is a **build error, not a runtime surprise**, which is precisely the property a trait-object registry or a `HashMap` of handlers would discard. This is the whole cost only when the parser already reads the format — Fujifilm RAF is such a case; NEF is not.
 
-When two formats end up with identical arms, that is not duplication to factor away — it is the code stating plainly that these formats do not differ. Collapse them with `Self::Cr3 | Self::Raf => ...` and split the arm when one actually diverges.
+When two formats end up with identical arms, that is not duplication to factor away — it is the code stating plainly that these formats do not differ. Collapse them into one arm, as `capture_tags` above already does for CR3 and NEF, and split it when one actually diverges.
 
 **Start flat, promote later.** `format.rs` is one file. If some format eventually needs genuinely bespoke extraction, that match arm calls into its own module and `format.rs` becomes `format/mod.rs` + `format/rw2.rs`. In Rust that promotion is a rename, not a refactor — so there is no cost to deferring it, and the per-format subdirectory appears only once a format has earned one.
 
@@ -257,9 +252,9 @@ paths.par_iter()
 
 **Deterministic output.** Warnings are **never printed from worker threads** — interleaved stderr from N threads is unreadable and makes runs non-reproducible. Each worker returns its diagnostics in its outcome value; `main` sorts by path and prints after the phase completes. Progress goes through `indicatif`'s `ProgressBar`, which is internally synchronized; use `ProgressBar::suspend` if anything must print mid-phase.
 
-**Writes.** Sidecar paths are unique per input, so parallel workers never target the same file.
+**Writes.** Sidecar paths are unique per input, so parallel workers never target the same file. The temp file that `xmp::write_atomic` renames from gets a **random** name in the destination directory, from `tempfile::NamedTempFile::new_in`. That randomness is load-bearing: a name derived from the target would be identical in two concurrent `rawgeotag` runs over one directory, and they would race on it. It is also the reason `tempfile` is a dependency rather than a hand-rolled temp-then-rename.
 
-> **Corrected 2026-08-02 — the original sentence here said the temp file's name is "derived from the target", and got the reasoning backwards.** `xmp::write_atomic` uses `tempfile::NamedTempFile::new_in`, which picks a **random** name in the destination directory. That is not an incidental difference: a target-derived name is stable across processes, so two `rawgeotag` runs over one directory would pick the *same* temp path and race. Randomness is what rules that out, and it is why `tempfile` is a dependency at all rather than a hand-rolled temp-then-rename. `Cargo.toml` and `xmp.rs` both say so at the site; this is the one place that disagreed.
+> **Corrected 2026-08-02.** This paragraph used to claim the temp name *was* derived from the target, and that this is what made it collision-free — the opposite of the real argument. `Cargo.toml` and `xmp.rs` state it correctly at the site; this was the one place that disagreed.
 
 Report elapsed wall time and throughput (files/sec) in the summary, so `--jobs` tuning is measurable rather than guesswork.
 
@@ -383,19 +378,19 @@ Exit non-zero if any file errored or the gate fired; zero if everything was eith
    - `exiftool -DateTimeOriginal -OffsetTimeOriginal <file>.cr3` should match what the tool extracted.
    - `exiftool <file>.xmp` should read back the GPS coordinates; compare against the track for that timestamp.
    - This is a test-time sanity check only — no ExifTool call exists anywhere in the shipped program.
-7. **Determinism under parallelism:** ✅ verified 2026-07-31 on 3,883 real CR3s at `--jobs 1`, `2` and `16`. All three produced byte-identical console output (excluding the timing line), an identical 1,489-line warning list, and an identical SHA-256 manifest over all 2,394 sidecars. This is the main regression risk the concurrency design introduces, so **re-run it after any change to the phase structure, the outcome enums, or the reporting order** — it is the check that would catch a worker printing directly, or a tally that depends on completion order.
+7. **Determinism under parallelism.** ✅ This is the main regression risk the concurrency design introduces — a worker printing directly, or a tally that depends on completion order.
 
-   **Re-run the same day** after the gate's selection logic was extracted into `files_needing_offset()`. All three job counts agreed with each other *and* reproduced the pre-extraction output byte for byte, which is the stronger result — the refactor did not merely stay self-consistent. Two lessons worth keeping: extracting a function that owns a `sort` is exactly the change this check exists to police, and a careless `sed` during that work silently removed the unrelated sort in `collect_paths` as well, which nothing but this check would have caught before release. **When re-running, also diff against the previous run's artifacts, not just across job counts** — a bug that reorders output consistently at every `-j` passes the cross-job comparison and fails the historical one.
+   **Re-run it after any change to the phase structure, the outcome enums, or the reporting order.** Two comparisons, not one: across `--jobs` values, **and against the previous run's artifacts**. The second matters because a bug that reorders output *consistently* at every `-j` passes the first and fails only the second. Since the three fixture aggregates in `verify-fixtures.ps1` are themselves previous artifacts, `verify-fixtures.ps1` covers the historical half for free.
 
-   **Re-run 2026-08-02** after a readability pass touched the phase structure, both
-   outcome enums and the reporting order at once — `Extraction` gained a `kind`
-   field, `files_needing_offset()` became `gate()` consuming the extractions,
-   and the Phase B tally moved into `tally_writes()`. `cr3-rockies` and
-   `nef-sedona` at `-j 1`, `2` and `16`: identical sidecar aggregates *and*
-   identical `--verbose` stdout+stderr (timing line excluded) at every job count.
-   The historical half of the check came free this time — the three fixture
-   aggregates in `verify-fixtures.ps1` **are** the previous run's artifacts, so a
-   consistent reorder would have moved them. It did not.
+   Runs so far, each byte-identical at every job count tried:
+
+   | When | After | Scope |
+   |---|---|---|
+   | 2026-07-31 | first full verification | 3,883 CR3s at `-j 1/2/16`; identical console output, 1,489-line warning list, and SHA-256 manifest over 2,394 sidecars |
+   | 2026-07-31 | gate selection extracted into a function | also reproduced the *pre-extraction* output byte for byte — the stronger result |
+   | 2026-08-02 | phase structure, both outcome enums and reporting order all reshaped | `cr3-rockies` + `nef-sedona` at `-j 1/2/16`; identical aggregates *and* identical `--verbose` stdout+stderr |
+
+   The 2026-07-31 re-run is why the "diff against previous artifacts" rule exists: extracting a function that owns a `sort` is exactly what this check polices, and a careless `sed` during that work also removed an unrelated sort in `collect_paths`, which nothing else would have caught before release.
 8. **Scaling:** ✅ done — see the measured note under Concurrency. **Do not expect more threads to be faster.** On local storage throughput *peaks at `-j 2` and degrades above it*, which is why that is the default; a slowdown at `-j 8` is the expected result, not a bug. Over network storage the opposite holds and parallelism is worth ~12× — **for CR3**. A `WholeFile` format is bandwidth-bound instead and gains only ~2×, so re-measure per format rather than assuming these transfer. If you re-measure, evict the page cache first and delete existing sidecars, or you will be timing RAM and cheap overwrites rather than the real workload.
 9. **Behavior checks:** re-run and confirm existing sidecars are skipped with warnings; re-run with `--force` and confirm overwrite; `--dry-run` writes nothing; a deliberately wrong `--utc-offset` against a CR3 that has `OffsetTimeOriginal` fires the conflict warning *and still uses the EXIF value*; omitting `--utc-offset` on naive-timestamp files trips the gate with no sidecars written.
 
