@@ -122,15 +122,28 @@ impl RawFormat {
         }
     }
 
-    /// Resolve a user-supplied extension, tolerating case and a leading dot.
+    /// Does `ext` select this format? Case-insensitive, and `ext` carries no
+    /// leading dot.
+    ///
+    /// The single home of the matching rule: `from_extension` resolves the
+    /// command-line argument through it and the directory walk filters files
+    /// through it, so a format that declares two extensions finds both.
+    pub fn matches_extension(self, ext: &str) -> bool {
+        self.extensions()
+            .iter()
+            .any(|known| known.eq_ignore_ascii_case(ext))
+    }
+
+    /// Resolve a user-supplied extension, tolerating case and one leading dot.
+    ///
+    /// `strip_prefix` rather than `trim_start_matches`, which would strip a whole
+    /// run of them and accept `"...cr3"`.
     pub fn from_extension(ext: &str) -> Option<Self> {
-        let ext = ext.trim_start_matches('.');
-        Self::ALL.iter().copied().find(|format| {
-            format
-                .extensions()
-                .iter()
-                .any(|known| known.eq_ignore_ascii_case(ext))
-        })
+        let ext = ext.strip_prefix('.').unwrap_or(ext);
+        Self::ALL
+            .iter()
+            .copied()
+            .find(|format| format.matches_extension(ext))
     }
 
     /// Every supported extension, for `--help` and for the error shown when an
@@ -184,6 +197,23 @@ mod tests {
     fn unknown_extension_is_rejected() {
         assert_eq!(RawFormat::from_extension("jpg"), None);
         assert_eq!(RawFormat::from_extension(""), None);
+    }
+
+    #[test]
+    fn only_one_leading_dot_is_tolerated() {
+        // `trim_start_matches` would strip the whole run and accept these.
+        assert_eq!(RawFormat::from_extension("..cr3"), None);
+        assert_eq!(RawFormat::from_extension("...nef"), None);
+    }
+
+    /// The rule the directory walk filters on, so it is worth pinning
+    /// independently of `from_extension`.
+    #[test]
+    fn extension_matching_is_per_format_and_case_insensitive() {
+        assert!(RawFormat::Cr3.matches_extension("cr3"));
+        assert!(RawFormat::Cr3.matches_extension("CR3"));
+        assert!(!RawFormat::Cr3.matches_extension("nef"));
+        assert!(!RawFormat::Cr3.matches_extension(".cr3"));
     }
 
     /// Pinned rather than derived: each of these was established against real

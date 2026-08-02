@@ -185,12 +185,11 @@ impl Track {
 
     /// The track's time span, inclusive of both ends.
     pub fn span(&self) -> (DateTime<Utc>, DateTime<Utc>) {
-        // `new` rejects an empty track, so both ends exist.
-        let ends = (self.points.first(), self.points.last());
-        match ends {
-            (Some(first), Some(last)) => (first.at, last.at),
-            _ => unreachable!("Track::new rejects an empty track"),
-        }
+        const NON_EMPTY: &str = "Track::new rejects an empty track";
+
+        let first = self.points.first().expect(NON_EMPTY);
+        let last = self.points.last().expect(NON_EMPTY);
+        (first.at, last.at)
     }
 
     /// Position at `at`, if the track genuinely supports one there.
@@ -228,9 +227,10 @@ impl Track {
 /// which both crates agree on, so nothing is lost. Keeping the conversion to this
 /// single function is what stops the two time crates from spreading.
 fn track_point(waypoint: Waypoint, segment: u32) -> Option<TrackPoint> {
-    // Read the borrowing accessors before moving `time` out of the waypoint.
     let point = waypoint.point();
     let ele = waypoint.elevation;
+    // An untimed waypoint cannot be matched to a photo, so it is dropped — which
+    // is why every caller iterates with `filter_map`.
     let at = DateTime::from_timestamp(OffsetDateTime::from(waypoint.time?).unix_timestamp(), 0)?;
 
     Some(TrackPoint {
@@ -299,6 +299,16 @@ fn read_file(path: &Path) -> Result<ParsedFile> {
     })
 }
 
+/// Render a track instant the one way this tool prints them, so the `--verbose`
+/// span line and the overlap error below read alike.
+///
+/// It lives here rather than in `main` because both callers are printing a track
+/// span, and a module reaching up into the binary root for a helper is what stops
+/// it being liftable on its own.
+pub fn format_utc(at: DateTime<Utc>) -> String {
+    at.format("%Y-%m-%dT%H:%M:%SZ").to_string()
+}
+
 /// Earliest and latest instant among `points`, or `None` if there are none.
 fn span_of(points: &[TrackPoint]) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
     let first = points.iter().map(|p| p.at).min()?;
@@ -333,11 +343,11 @@ fn ensure_no_overlap(spans: &[(&Path, DateTime<Utc>, DateTime<Utc>)]) -> Result<
                      run them as separate passes — photos outside a track are skipped, so \
                      a later pass tags only what the earlier one left alone.",
                     path_a.display(),
-                    crate::format_utc(*start_a),
-                    crate::format_utc(*end_a),
+                    format_utc(*start_a),
+                    format_utc(*end_a),
                     path_b.display(),
-                    crate::format_utc(*start_b),
-                    crate::format_utc(*end_b),
+                    format_utc(*start_b),
+                    format_utc(*end_b),
                 );
             }
         }
@@ -368,7 +378,9 @@ fn distance_meters(a: TrackPoint, b: TrackPoint) -> f64 {
     let h = (delta_lat / 2.0).sin().powi(2)
         + lat_a.cos() * lat_b.cos() * (delta_lon / 2.0).sin().powi(2);
 
-    2.0 * EARTH_RADIUS_M * h.sqrt().clamp(-1.0, 1.0).asin()
+    // `sqrt` cannot go negative, so only the upper bound can bite: rounding can
+    // push a near-antipodal `h` a hair above 1, where `asin` would return NaN.
+    2.0 * EARTH_RADIUS_M * h.sqrt().clamp(0.0, 1.0).asin()
 }
 
 /// Linear interpolation between two bracketing points.
@@ -410,6 +422,8 @@ fn normalize_lon(lon: f64) -> f64 {
 
 #[cfg(test)]
 mod tests {
+    use tempfile::TempDir;
+
     use super::*;
 
     /// Generous enough that tests exercising other behavior are not gated.
@@ -806,79 +820,64 @@ mod tests {
     }
 
     /// A scratch directory of its own, removed when the test ends.
-    struct ScratchDir(PathBuf);
+    ///
+    /// `tempfile` is already a dependency and already gives a unique name and
+    /// deletion on drop, which is the whole of what these tests need.
+    fn scratch_dir() -> TempDir {
+        tempfile::tempdir().expect("creating the scratch directory")
+    }
 
-    impl ScratchDir {
-        fn new(test_name: &str) -> Self {
-            let dir = std::env::temp_dir().join(format!(
-                "rawgeotag-track-{}-{test_name}",
-                std::process::id()
-            ));
-            let _ = std::fs::remove_dir_all(&dir);
-            std::fs::create_dir_all(&dir).expect("creating the scratch directory");
-            Self(dir)
-        }
+    /// Write a one-segment GPX at the given `HH:MM:SS` times, all at the same
+    /// spot so distance never decides anything the test is asking about.
+    fn write_gpx(dir: &TempDir, name: &str, times: &[&str]) -> PathBuf {
+        let points: String = times
+            .iter()
+            .map(|t| {
+                format!(r#"<trkpt lat="47.0" lon="-122.0"><time>2022-01-01T{t}Z</time></trkpt>"#)
+            })
+            .collect();
+        let path = dir.path().join(name);
+        std::fs::write(
+            &path,
+            format!(
+                r#"<?xml version="1.0"?><gpx version="1.1" creator="test"><trk><trkseg>{points}</trkseg></trk></gpx>"#
+            ),
+        )
+        .expect("writing the test GPX");
+        path
+    }
 
-        /// Write a one-segment GPX at the given `HH:MM:SS` times, all at the same
-        /// spot so distance never decides anything the test is asking about.
-        fn gpx(&self, name: &str, times: &[&str]) -> PathBuf {
-            let points: String = times
+    /// A GPX holding a track segment *and* standalone waypoints, so the file
+    /// consumes two segment ids rather than one.
+    fn write_gpx_with_waypoints(dir: &TempDir, name: &str, trk: &[&str], wpt: &[&str]) -> PathBuf {
+        let point = |tag: &str, times: &[&str]| -> String {
+            times
                 .iter()
                 .map(|t| {
                     format!(
-                        r#"<trkpt lat="47.0" lon="-122.0"><time>2022-01-01T{t}Z</time></trkpt>"#
+                        r#"<{tag} lat="47.0" lon="-122.0"><time>2022-01-01T{t}Z</time></{tag}>"#
                     )
                 })
-                .collect();
-            let path = self.0.join(name);
-            std::fs::write(
-                &path,
-                format!(
-                    r#"<?xml version="1.0"?><gpx version="1.1" creator="test"><trk><trkseg>{points}</trkseg></trk></gpx>"#
-                ),
-            )
-            .expect("writing the test GPX");
-            path
-        }
-
-        /// A GPX holding a track segment *and* standalone waypoints, so the file
-        /// consumes two segment ids rather than one.
-        fn gpx_with_waypoints(&self, name: &str, trk: &[&str], wpt: &[&str]) -> PathBuf {
-            let point = |tag: &str, times: &[&str]| -> String {
-                times
-                    .iter()
-                    .map(|t| {
-                        format!(
-                            r#"<{tag} lat="47.0" lon="-122.0"><time>2022-01-01T{t}Z</time></{tag}>"#
-                        )
-                    })
-                    .collect()
-            };
-            let path = self.0.join(name);
-            std::fs::write(
-                &path,
-                format!(
-                    r#"<?xml version="1.0"?><gpx version="1.1" creator="test">{}<trk><trkseg>{}</trkseg></trk></gpx>"#,
-                    point("wpt", wpt),
-                    point("trkpt", trk)
-                ),
-            )
-            .expect("writing the test GPX");
-            path
-        }
-    }
-
-    impl Drop for ScratchDir {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
+                .collect()
+        };
+        let path = dir.path().join(name);
+        std::fs::write(
+            &path,
+            format!(
+                r#"<?xml version="1.0"?><gpx version="1.1" creator="test">{}<trk><trkseg>{}</trkseg></trk></gpx>"#,
+                point("wpt", wpt),
+                point("trkpt", trk)
+            ),
+        )
+        .expect("writing the test GPX");
+        path
     }
 
     #[test]
     fn several_files_load_into_one_index() {
-        let dir = ScratchDir::new("load-many");
-        let morning = dir.gpx("morning.gpx", &["00:00:00", "00:00:10"]);
-        let evening = dir.gpx("evening.gpx", &["00:01:00", "00:01:10"]);
+        let dir = scratch_dir();
+        let morning = write_gpx(&dir, "morning.gpx", &["00:00:00", "00:00:10"]);
+        let evening = write_gpx(&dir, "evening.gpx", &["00:01:00", "00:01:10"]);
 
         let track = Track::load(&[morning, evening]).expect("both files are valid and disjoint");
 
@@ -889,9 +888,9 @@ mod tests {
 
     #[test]
     fn the_seam_between_two_files_is_not_interpolated_across() {
-        let dir = ScratchDir::new("seam");
-        let morning = dir.gpx("morning.gpx", &["00:00:00", "00:00:10"]);
-        let evening = dir.gpx("evening.gpx", &["00:01:00", "00:01:10"]);
+        let dir = scratch_dir();
+        let morning = write_gpx(&dir, "morning.gpx", &["00:00:00", "00:00:10"]);
+        let evening = write_gpx(&dir, "evening.gpx", &["00:01:00", "00:01:10"]);
 
         let track = Track::load(&[morning, evening]).expect("both files are valid and disjoint");
 
@@ -916,9 +915,9 @@ mod tests {
 
     #[test]
     fn loading_overlapping_files_fails_before_a_track_is_built() {
-        let dir = ScratchDir::new("overlap");
-        let first = dir.gpx("first.gpx", &["00:00:00", "00:01:00"]);
-        let second = dir.gpx("second.gpx", &["00:00:30", "00:02:00"]);
+        let dir = scratch_dir();
+        let first = write_gpx(&dir, "first.gpx", &["00:00:00", "00:01:00"]);
+        let second = write_gpx(&dir, "second.gpx", &["00:00:30", "00:02:00"]);
 
         // Not `expect_err`: that needs `Track: Debug`, and deriving it would mean
         // any failure elsewhere dumps every point in a real track.
@@ -941,13 +940,14 @@ mod tests {
     /// separate recordings look like one contiguous segment.
     #[test]
     fn a_files_waypoints_consume_a_segment_id_of_their_own() {
-        let dir = ScratchDir::new("waypoint-segment");
-        let first = dir.gpx_with_waypoints(
+        let dir = scratch_dir();
+        let first = write_gpx_with_waypoints(
+            &dir,
             "first.gpx",
             &["00:00:00", "00:00:10"],
             &["00:00:20", "00:00:30"],
         );
-        let second = dir.gpx("second.gpx", &["00:01:00", "00:01:10"]);
+        let second = write_gpx(&dir, "second.gpx", &["00:01:00", "00:01:10"]);
 
         let track = Track::load(&[first, second]).expect("both files are valid and disjoint");
         assert_eq!(track.point_count(), 6);
@@ -978,8 +978,11 @@ mod tests {
     /// reported must still be the first one on the command line.
     #[test]
     fn the_first_unreadable_file_is_reported_whichever_worker_fails_first() {
-        let dir = ScratchDir::new("bad-files");
-        let missing = [dir.0.join("aaa-missing.gpx"), dir.0.join("zzz-missing.gpx")];
+        let dir = scratch_dir();
+        let missing = [
+            dir.path().join("aaa-missing.gpx"),
+            dir.path().join("zzz-missing.gpx"),
+        ];
 
         // Repeated because this is a scheduling property: one pass could pick the
         // right file by luck.

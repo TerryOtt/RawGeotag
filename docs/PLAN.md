@@ -199,7 +199,7 @@ The gate is why this is two phases rather than one. Forgetting `--utc-offset` on
 
 **The barrier cannot be optimized away.** The gate needs every capture time, and *obtaining* a capture time is itself the expensive operation — the raw parse, which for a `WholeFile` format means reading the entire file. There is no cheap pre-scan that validates timezones without doing the costly work, so the expensive pass and the gate are inherently the same pass. The barrier costs ~10% of wall clock (reads alone vs. reads plus writes on the 1,024-file set), and a fused design would recover only part of that, since writes do not parallelize on NTFS anyway.
 
-**Considered and rejected:** when `--utc-offset` *is* supplied, no file can reach `Extraction::NeedsOffset`, so the gate is provably vacuous and the phases could legally fuse into a single pass. That buys a few percent on one code path in exchange for two structurally different execution models to reason about and test. Constraint 3 (readable over clever) wins; do not re-propose it.
+**Considered and rejected:** when `--utc-offset` *is* supplied, no file can reach `ExtractionKind::NeedsOffset`, so the gate is provably vacuous and the phases could legally fuse into a single pass. That buys a few percent on one code path in exchange for two structurally different execution models to reason about and test. Constraint 3 (readable over clever) wins; do not re-propose it.
 
 **Collect-then-parallelize, not `par_bridge`.** Materializing the walk into a `Vec` before parallelizing gives rayon contiguous slices to split, which load-balances far better than bridging a sequential iterator. Traversal is a small serial prefix; if it ever dominates (very deep trees, network storage), `jwalk` is a near drop-in replacement that parallelizes the walk itself.
 
@@ -338,6 +338,16 @@ Exit non-zero if any file errored or the gate fired; zero if everything was eith
 7. **Determinism under parallelism:** ✅ verified 2026-07-31 on 3,883 real CR3s at `--jobs 1`, `2` and `16`. All three produced byte-identical console output (excluding the timing line), an identical 1,489-line warning list, and an identical SHA-256 manifest over all 2,394 sidecars. This is the main regression risk the concurrency design introduces, so **re-run it after any change to the phase structure, the outcome enums, or the reporting order** — it is the check that would catch a worker printing directly, or a tally that depends on completion order.
 
    **Re-run the same day** after the gate's selection logic was extracted into `files_needing_offset()`. All three job counts agreed with each other *and* reproduced the pre-extraction output byte for byte, which is the stronger result — the refactor did not merely stay self-consistent. Two lessons worth keeping: extracting a function that owns a `sort` is exactly the change this check exists to police, and a careless `sed` during that work silently removed the unrelated sort in `collect_paths` as well, which nothing but this check would have caught before release. **When re-running, also diff against the previous run's artifacts, not just across job counts** — a bug that reorders output consistently at every `-j` passes the cross-job comparison and fails the historical one.
+
+   **Re-run 2026-08-02** after a readability pass touched the phase structure, both
+   outcome enums and the reporting order at once — `Extraction` gained a `kind`
+   field, `files_needing_offset()` became `gate()` consuming the extractions,
+   and the Phase B tally moved into `tally_writes()`. `cr3-rockies` and
+   `nef-sedona` at `-j 1`, `2` and `16`: identical sidecar aggregates *and*
+   identical `--verbose` stdout+stderr (timing line excluded) at every job count.
+   The historical half of the check came free this time — the three fixture
+   aggregates in `verify-fixtures.ps1` **are** the previous run's artifacts, so a
+   consistent reorder would have moved them. It did not.
 8. **Scaling:** ✅ done — see the measured note under Concurrency. **Do not expect more threads to be faster.** On local storage throughput *peaks at `-j 2` and degrades above it*, which is why that is the default; a slowdown at `-j 8` is the expected result, not a bug. Over network storage the opposite holds and parallelism is worth ~12× — **for CR3**. A `WholeFile` format is bandwidth-bound instead and gains only ~2×, so re-measure per format rather than assuming these transfer. If you re-measure, evict the page cache first and delete existing sidecars, or you will be timing RAM and cheap overwrites rather than the real workload.
 9. **Behavior checks:** re-run and confirm existing sidecars are skipped with warnings; re-run with `--force` and confirm overwrite; `--dry-run` writes nothing; a deliberately wrong `--utc-offset` against a CR3 that has `OffsetTimeOriginal` fires the conflict warning *and still uses the EXIF value*; omitting `--utc-offset` on naive-timestamp files trips the gate with no sidecars written.
 

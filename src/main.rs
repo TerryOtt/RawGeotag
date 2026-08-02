@@ -36,7 +36,7 @@ use walkdir::WalkDir;
 
 use crate::format::RawFormat;
 use crate::raw::Capture;
-use crate::track::{Fix, GapLimits, Lookup, Track};
+use crate::track::{format_utc, Fix, GapLimits, Lookup, Track};
 
 /// Default worker count, tuned for the common case: raws on a local SSD.
 ///
@@ -140,7 +140,6 @@ fn run() -> Result<Outcome> {
             RawFormat::supported_extensions()
         )
     })?;
-    let wanted_ext = args.ext.trim_start_matches('.').to_ascii_lowercase();
 
     if args.jobs == 0 {
         bail!("--jobs must be at least 1");
@@ -153,8 +152,8 @@ fn run() -> Result<Outcome> {
     let started = Instant::now();
 
     let track = Track::load(&args.gpx)?;
-    let (track_start, track_end) = track.span();
     if args.verbose {
+        let (start, end) = track.span();
         // The span is the union of every file given. It is not a claim of
         // continuous coverage — holes between the tracks are still holes, and a
         // photo falling in one is skipped like any other gap.
@@ -162,16 +161,20 @@ fn run() -> Result<Outcome> {
             "Track: {} points from {} file(s), {} to {}",
             count(track.point_count()),
             args.gpx.len(),
-            format_utc(track_start),
-            format_utc(track_end)
+            format_utc(start),
+            format_utc(end)
         );
     }
 
-    let (paths, walk_errors) = collect_paths(&args.dir, &wanted_ext)?;
+    // Named from the format rather than from whatever the user typed, because the
+    // walk matches every extension the format declares, not just that one.
+    let extensions = format.extensions().join(", ");
+    let (paths, walk_errors) = collect_paths(&args.dir, format)?;
     if paths.is_empty() {
-        println!("Scanned 0 .{wanted_ext} files under {}", args.dir.display());
+        println!("Scanned 0 .{extensions} files under {}", args.dir.display());
         return Ok(Outcome::Clean);
     }
+    let scanned = paths.len();
 
     // ---- Phase A: extract capture times -------------------------------------
     let progress = progress_bar(paths.len(), args.no_progress, "reading capture times");
@@ -186,107 +189,46 @@ fn run() -> Result<Outcome> {
     progress.finish_and_clear();
 
     // ---- Gate ---------------------------------------------------------------
-    let needs_offset = files_needing_offset(&extractions);
-
-    if !needs_offset.is_empty() {
-        eprintln!(
-            "error: {} file(s) have a capture time with no timezone, and no --utc-offset was given:",
-            count(needs_offset.len())
-        );
-        for path in &needs_offset {
-            eprintln!("  {}", path.display());
+    let Extracted {
+        photos,
+        mut warnings,
+        no_capture_time,
+        failed: read_failures,
+    } = match gate(extractions) {
+        Ok(extracted) => extracted,
+        Err(needs_offset) => {
+            report_missing_offsets(&needs_offset);
+            return Ok(Outcome::HadFailures);
         }
-        eprintln!("\nRe-run with --utc-offset <±HHMM>. No sidecars were written.");
-        return Ok(Outcome::HadFailures);
-    }
+    };
 
     // ---- Phase B: interpolate and write -------------------------------------
-    let mut photos = Vec::new();
-    let mut warnings = Vec::new();
-    let mut no_capture_time = 0usize;
-    let mut failed = 0usize;
-
-    for extraction in extractions {
-        match extraction {
-            Extraction::Resolved {
-                path,
-                captured,
-                conflict_warning,
-            } => {
-                if let Some(warning) = conflict_warning {
-                    warnings.push((path.clone(), warning));
-                }
-                photos.push(Photo { path, captured });
-            }
-            Extraction::NoCaptureTime { path } => {
-                no_capture_time += 1;
-                warnings.push((path, "no capture time in EXIF".to_string()));
-            }
-            Extraction::Failed { path, error } => {
-                failed += 1;
-                warnings.push((path, error));
-            }
-            // Ruled out by the gate above.
-            Extraction::NeedsOffset { .. } => unreachable!("the gate returns early"),
-        }
-    }
-
-    let scanned = paths.len();
+    let settings = WriteSettings::from_args(&args);
     let progress = progress_bar(photos.len(), args.no_progress, "writing sidecars");
     let results: Vec<Written> = photos
         .into_par_iter()
         .map(|photo| {
-            let written = write_one(&photo, &track, &args);
+            let written = write_one(photo, &track, settings);
             progress.inc(1);
             written
         })
         .collect();
     progress.finish_and_clear();
 
-    // ---- Report -------------------------------------------------------------
-    let mut tagged = 0usize;
-    let mut outside_track = 0usize;
-    let mut in_gap = 0usize;
-    let mut sidecar_exists = 0usize;
-    let mut details = Vec::new();
+    let tally = tally_writes(results, args.verbose);
 
-    for written in results {
-        match written.kind {
-            WrittenKind::Tagged { fix } => {
-                tagged += 1;
-                if args.verbose {
-                    details.push((written.path, format!("{:.6}, {:.6}", fix.lat, fix.lon)));
-                }
-            }
-            WrittenKind::OutsideTrack => {
-                outside_track += 1;
-                warnings.push((
-                    written.path,
-                    "capture time is outside the track".to_string(),
-                ));
-            }
-            WrittenKind::InGap { description } => {
-                in_gap += 1;
-                warnings.push((written.path, description));
-            }
-            WrittenKind::SidecarExists => {
-                sidecar_exists += 1;
-                warnings.push((
-                    written.path,
-                    "sidecar already exists (use --force to overwrite)".to_string(),
-                ));
-            }
-            WrittenKind::Failed { error } => {
-                failed += 1;
-                warnings.push((written.path, error));
-            }
-        }
-    }
+    // ---- Report -------------------------------------------------------------
+    // The only two figures either phase contributes to. Adding them here, rather
+    // than sharing a counter across both loops, is what keeps each phase's tally
+    // readable on its own.
+    warnings.extend(tally.warnings);
+    let failed = read_failures + tally.failed;
 
     for error in &walk_errors {
         eprintln!("warning: {error}");
     }
 
+    let mut details = tally.details;
     details.sort_unstable();
     for (path, detail) in details {
         println!("{}  {}", path.display(), detail);
@@ -298,12 +240,12 @@ fn run() -> Result<Outcome> {
     }
 
     print_summary(&Summary {
-        extension: &wanted_ext,
+        extension: &extensions,
         scanned,
-        tagged,
-        outside_track,
-        in_gap,
-        sidecar_exists,
+        tagged: tally.tagged,
+        outside_track: tally.outside_track,
+        in_gap: tally.in_gap,
+        sidecar_exists: tally.sidecar_exists,
         no_capture_time,
         failed,
         elapsed: started.elapsed().as_secs_f64(),
@@ -326,20 +268,25 @@ struct Photo {
 
 /// Phase A's per-file result. Diagnostics travel in the value rather than being
 /// printed, so workers stay silent and output stays deterministic.
-enum Extraction {
+///
+/// Path beside kind rather than repeated in every variant — the same shape as
+/// `Written`, since the two model the same thing. It also means `extract` builds
+/// the `PathBuf` once instead of once per arm.
+struct Extraction {
+    path: PathBuf,
+    kind: ExtractionKind,
+}
+
+enum ExtractionKind {
+    /// Resolved to an absolute instant. The warning is set when EXIF and
+    /// `--utc-offset` disagreed; the EXIF value was used either way.
     Resolved {
-        path: PathBuf,
         captured: DateTime<Utc>,
         conflict_warning: Option<String>,
     },
-    NeedsOffset {
-        path: PathBuf,
-    },
-    NoCaptureTime {
-        path: PathBuf,
-    },
+    NeedsOffset,
+    NoCaptureTime,
     Failed {
-        path: PathBuf,
         error: String,
     },
 }
@@ -350,9 +297,8 @@ fn extract(
     format: RawFormat,
     utc_offset: Option<FixedOffset>,
 ) -> Extraction {
-    match raw::capture_time(parser, path, format, utc_offset) {
-        Ok(Capture::Resolved { at, conflict }) => Extraction::Resolved {
-            path: path.to_path_buf(),
+    let kind = match raw::capture_time(parser, path, format, utc_offset) {
+        Ok(Capture::Resolved { at, conflict }) => ExtractionKind::Resolved {
             captured: at,
             conflict_warning: conflict.map(|conflict| {
                 format!(
@@ -361,17 +307,88 @@ fn extract(
                 )
             }),
         },
-        Ok(Capture::NeedsOffset) => Extraction::NeedsOffset {
-            path: path.to_path_buf(),
-        },
-        Ok(Capture::NoCaptureTime) => Extraction::NoCaptureTime {
-            path: path.to_path_buf(),
-        },
-        Err(error) => Extraction::Failed {
-            path: path.to_path_buf(),
+        Ok(Capture::NeedsOffset) => ExtractionKind::NeedsOffset,
+        Ok(Capture::NoCaptureTime) => ExtractionKind::NoCaptureTime,
+        Err(error) => ExtractionKind::Failed {
             error: format!("{error:#}"),
         },
+    };
+
+    Extraction {
+        path: path.to_path_buf(),
+        kind,
     }
+}
+
+/// Phase A's results once the gate has let the run through: the photos Phase B
+/// will write, and the diagnostics for everything that will not be written.
+#[derive(Default)]
+struct Extracted {
+    photos: Vec<Photo>,
+    warnings: Vec<(PathBuf, String)>,
+    no_capture_time: usize,
+    /// Files that could not be read at all.
+    failed: usize,
+}
+
+/// The gate: sort Phase A's results into what Phase B needs, or refuse the run.
+///
+/// `Err` carries the files whose capture time has no timezone and no
+/// `--utc-offset` to resolve it — sorted, because the list is printed and the run
+/// must read the same at any `--jobs`. A non-empty list means no sidecar is
+/// written at all; guessing an offset would misplace every photo by that amount.
+///
+/// Taking the extractions **by value** is the point of the signature: once they
+/// have been consumed here, "a `NeedsOffset` that got past the gate" is not a
+/// state the rest of the program can be handed, so there is nothing left to
+/// assert about it downstream.
+fn gate(extractions: Vec<Extraction>) -> Result<Extracted, Vec<PathBuf>> {
+    let mut extracted = Extracted::default();
+    let mut needs_offset = Vec::new();
+
+    for Extraction { path, kind } in extractions {
+        match kind {
+            ExtractionKind::Resolved {
+                captured,
+                conflict_warning,
+            } => {
+                if let Some(warning) = conflict_warning {
+                    // The one case that clones: the path is needed again below.
+                    extracted.warnings.push((path.clone(), warning));
+                }
+                extracted.photos.push(Photo { path, captured });
+            }
+            ExtractionKind::NeedsOffset => needs_offset.push(path),
+            ExtractionKind::NoCaptureTime => {
+                extracted.no_capture_time += 1;
+                extracted
+                    .warnings
+                    .push((path, "no capture time in EXIF".to_string()));
+            }
+            ExtractionKind::Failed { error } => {
+                extracted.failed += 1;
+                extracted.warnings.push((path, error));
+            }
+        }
+    }
+
+    if needs_offset.is_empty() {
+        Ok(extracted)
+    } else {
+        needs_offset.sort_unstable();
+        Err(needs_offset)
+    }
+}
+
+fn report_missing_offsets(needs_offset: &[PathBuf]) {
+    eprintln!(
+        "error: {} file(s) have a capture time with no timezone, and no --utc-offset was given:",
+        count(needs_offset.len())
+    );
+    for path in needs_offset {
+        eprintln!("  {}", path.display());
+    }
+    eprintln!("\nRe-run with --utc-offset <±HHMM>. No sidecars were written.");
 }
 
 /// Phase B's per-file result.
@@ -388,23 +405,45 @@ enum WrittenKind {
     Failed { error: String },
 }
 
-fn write_one(photo: &Photo, track: &Track, args: &Args) -> Written {
-    let kind = write_sidecar(photo, track, args);
+/// What Phase B's workers actually need from the command line.
+///
+/// Resolved once before the loop rather than rebuilt per photo, and narrower than
+/// `&Args` so a worker cannot reach a flag that has nothing to do with writing.
+/// `Copy`, so handing it to every worker costs nothing.
+#[derive(Debug, Clone, Copy)]
+struct WriteSettings {
+    limits: GapLimits,
+    force: bool,
+    dry_run: bool,
+}
+
+impl WriteSettings {
+    /// `--max-gap` is a count of seconds on the command line and a `TimeDelta`
+    /// everywhere inside; this is the one place the two representations meet.
+    fn from_args(args: &Args) -> Self {
+        Self {
+            limits: GapLimits {
+                max_gap: TimeDelta::seconds(args.max_gap),
+                max_meters: args.max_distance,
+            },
+            force: args.force,
+            dry_run: args.dry_run,
+        }
+    }
+}
+
+/// Takes the `Photo` by value so its path can be moved into the result rather
+/// than cloned — Phase B owns them by this point.
+fn write_one(photo: Photo, track: &Track, settings: WriteSettings) -> Written {
+    let kind = write_sidecar(&photo, track, settings);
     Written {
-        path: photo.path.clone(),
+        path: photo.path,
         kind,
     }
 }
 
-fn write_sidecar(photo: &Photo, track: &Track, args: &Args) -> WrittenKind {
-    // `--max-gap` is seconds on the command line and a `TimeDelta` everywhere
-    // inside; this is the only place the two meet.
-    let limits = GapLimits {
-        max_gap: TimeDelta::seconds(args.max_gap),
-        max_meters: args.max_distance,
-    };
-
-    let fix = match track.lookup(photo.captured, limits) {
+fn write_sidecar(photo: &Photo, track: &Track, settings: WriteSettings) -> WrittenKind {
+    let fix = match track.lookup(photo.captured, settings.limits) {
         Lookup::Found(fix) => fix,
         Lookup::OutsideTrack => return WrittenKind::OutsideTrack,
         Lookup::InGap(gap) => {
@@ -424,7 +463,7 @@ fn write_sidecar(photo: &Photo, track: &Track, args: &Args) -> WrittenKind {
     };
 
     let sidecar = xmp::sidecar_path(&photo.path);
-    if !args.force && sidecar.exists() {
+    if !settings.force && sidecar.exists() {
         return WrittenKind::SidecarExists;
     }
 
@@ -432,7 +471,7 @@ fn write_sidecar(photo: &Photo, track: &Track, args: &Args) -> WrittenKind {
 
     // --dry-run still does every bit of work above, so it exercises the same code
     // paths and reports the same counts; it just stops before touching the disk.
-    if args.dry_run {
+    if settings.dry_run {
         return WrittenKind::Tagged { fix };
     }
 
@@ -444,22 +483,58 @@ fn write_sidecar(photo: &Photo, track: &Track, args: &Args) -> WrittenKind {
     }
 }
 
-/// The files the gate must refuse the run over: a capture time with no zone and
-/// no `--utc-offset` to resolve it.
-///
-/// Returned sorted, because this list is printed and the run must read the same
-/// at any `--jobs`. Non-empty means no sidecar is written at all — guessing an
-/// offset would misplace every photo by that amount.
-fn files_needing_offset(extractions: &[Extraction]) -> Vec<&Path> {
-    let mut paths: Vec<&Path> = extractions
-        .iter()
-        .filter_map(|extraction| match extraction {
-            Extraction::NeedsOffset { path } => Some(path.as_path()),
-            _ => None,
-        })
-        .collect();
-    paths.sort_unstable();
-    paths
+/// Phase B's outcomes, counted for the summary.
+#[derive(Default)]
+struct Tally {
+    tagged: usize,
+    outside_track: usize,
+    in_gap: usize,
+    sidecar_exists: usize,
+    /// Sidecars that could not be written.
+    failed: usize,
+    warnings: Vec<(PathBuf, String)>,
+    /// Per-file positions, collected only under `--verbose`.
+    details: Vec<(PathBuf, String)>,
+}
+
+fn tally_writes(results: Vec<Written>, verbose: bool) -> Tally {
+    let mut tally = Tally::default();
+
+    for Written { path, kind } in results {
+        match kind {
+            WrittenKind::Tagged { fix } => {
+                tally.tagged += 1;
+                if verbose {
+                    tally
+                        .details
+                        .push((path, format!("{:.6}, {:.6}", fix.lat, fix.lon)));
+                }
+            }
+            WrittenKind::OutsideTrack => {
+                tally.outside_track += 1;
+                tally
+                    .warnings
+                    .push((path, "capture time is outside the track".to_string()));
+            }
+            WrittenKind::InGap { description } => {
+                tally.in_gap += 1;
+                tally.warnings.push((path, description));
+            }
+            WrittenKind::SidecarExists => {
+                tally.sidecar_exists += 1;
+                tally.warnings.push((
+                    path,
+                    "sidecar already exists (use --force to overwrite)".to_string(),
+                ));
+            }
+            WrittenKind::Failed { error } => {
+                tally.failed += 1;
+                tally.warnings.push((path, error));
+            }
+        }
+    }
+
+    tally
 }
 
 /// Walk the tree, collecting matching files.
@@ -467,7 +542,7 @@ fn files_needing_offset(extractions: &[Extraction]) -> Vec<&Path> {
 /// Materializing into a `Vec` before parallelizing gives rayon contiguous slices
 /// to split, which load-balances far better than bridging a sequential iterator.
 /// It also yields an exact denominator for the progress bar.
-fn collect_paths(dir: &Path, wanted_ext: &str) -> Result<(Vec<PathBuf>, Vec<String>)> {
+fn collect_paths(dir: &Path, format: RawFormat) -> Result<(Vec<PathBuf>, Vec<String>)> {
     if !dir.is_dir() {
         bail!("{} is not a directory", dir.display());
     }
@@ -478,7 +553,7 @@ fn collect_paths(dir: &Path, wanted_ext: &str) -> Result<(Vec<PathBuf>, Vec<Stri
     for entry in WalkDir::new(dir) {
         match entry {
             Ok(entry) if entry.file_type().is_file() => {
-                if has_extension(entry.path(), wanted_ext) {
+                if matches_format(entry.path(), format) {
                     paths.push(entry.into_path());
                 }
             }
@@ -491,10 +566,13 @@ fn collect_paths(dir: &Path, wanted_ext: &str) -> Result<(Vec<PathBuf>, Vec<Stri
     Ok((paths, errors))
 }
 
-fn has_extension(path: &Path, wanted: &str) -> bool {
+/// Filtered against the format's own extension table rather than against the
+/// string the user typed, so a format declaring more than one extension finds
+/// files under all of them.
+fn matches_format(path: &Path, format: RawFormat) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| ext.eq_ignore_ascii_case(wanted))
+        .is_some_and(|ext| format.matches_extension(ext))
 }
 
 fn progress_bar(len: usize, hidden: bool, message: &'static str) -> ProgressBar {
@@ -622,14 +700,6 @@ fn thousands(value: i64) -> String {
     out
 }
 
-/// The one timestamp format the tool prints, so every report reads the same.
-///
-/// Infallible now that instants are `DateTime<Utc>`; it previously needed a
-/// fallback branch for a Unix second that could not be converted back.
-fn format_utc(at: DateTime<Utc>) -> String {
-    at.format("%Y-%m-%dT%H:%M:%SZ").to_string()
-}
-
 /// Parse `±HHMM`, also tolerating `±HH:MM`. Shares its implementation with the
 /// EXIF-side offset parser so the two can never drift apart.
 fn parse_utc_offset(text: &str) -> Result<FixedOffset, String> {
@@ -664,57 +734,84 @@ mod tests {
         }
     }
 
-    fn needs_offset(path: &str) -> Extraction {
-        Extraction::NeedsOffset {
+    fn extraction(path: &str, kind: ExtractionKind) -> Extraction {
+        Extraction {
             path: PathBuf::from(path),
+            kind,
+        }
+    }
+
+    fn resolved() -> ExtractionKind {
+        ExtractionKind::Resolved {
+            captured: DateTime::from_timestamp(1000, 0).expect("a valid test instant"),
+            conflict_warning: None,
         }
     }
 
     #[test]
     fn the_gate_stays_shut_when_every_file_resolved() {
-        let extractions = vec![
-            Extraction::Resolved {
-                path: PathBuf::from("/photos/a.cr3"),
-                captured: DateTime::from_timestamp(1000, 0).expect("a valid test instant"),
-                conflict_warning: None,
-            },
-            Extraction::NoCaptureTime {
-                path: PathBuf::from("/photos/b.cr3"),
-            },
-            Extraction::Failed {
-                path: PathBuf::from("/photos/c.cr3"),
-                error: "unreadable".to_string(),
-            },
-        ];
-
         // A missing capture time or a read failure is a per-file skip, not a
         // reason to refuse the whole run. Only a missing timezone is.
-        assert!(files_needing_offset(&extractions).is_empty());
+        let extracted = gate(vec![
+            extraction("/photos/a.cr3", resolved()),
+            extraction("/photos/b.cr3", ExtractionKind::NoCaptureTime),
+            extraction(
+                "/photos/c.cr3",
+                ExtractionKind::Failed {
+                    error: "unreadable".to_string(),
+                },
+            ),
+        ])
+        .expect("only a missing timezone may refuse the run");
+
+        assert_eq!(extracted.photos.len(), 1);
+        assert_eq!(extracted.no_capture_time, 1);
+        assert_eq!(extracted.failed, 1);
+        // Both skips are reported, and neither is silent.
+        assert_eq!(extracted.warnings.len(), 2);
     }
 
     #[test]
     fn the_gate_reports_every_zoneless_file_in_sorted_order() {
-        let extractions = vec![
-            needs_offset("/photos/c.cr3"),
-            Extraction::Resolved {
-                path: PathBuf::from("/photos/z.cr3"),
-                captured: DateTime::from_timestamp(1000, 0).expect("a valid test instant"),
-                conflict_warning: None,
-            },
-            needs_offset("/photos/a.cr3"),
-            needs_offset("/photos/b.cr3"),
-        ];
+        // Not `expect_err`: that needs `Extracted: Debug`, and deriving it would
+        // mean a failure here dumps every photo of a real run.
+        let needs_offset = match gate(vec![
+            extraction("/photos/c.cr3", ExtractionKind::NeedsOffset),
+            extraction("/photos/z.cr3", resolved()),
+            extraction("/photos/a.cr3", ExtractionKind::NeedsOffset),
+            extraction("/photos/b.cr3", ExtractionKind::NeedsOffset),
+        ]) {
+            Err(needs_offset) => needs_offset,
+            Ok(_) => panic!("a file with no timezone must refuse the run"),
+        };
 
         // Sorted regardless of the order Phase A happened to finish in, so the
         // report is identical at any --jobs.
         assert_eq!(
-            files_needing_offset(&extractions),
+            needs_offset,
             vec![
-                Path::new("/photos/a.cr3"),
-                Path::new("/photos/b.cr3"),
-                Path::new("/photos/c.cr3"),
+                PathBuf::from("/photos/a.cr3"),
+                PathBuf::from("/photos/b.cr3"),
+                PathBuf::from("/photos/c.cr3"),
             ]
         );
+    }
+
+    /// A conflict is reported *and* the photo is still tagged — the EXIF offset
+    /// wins, but silently discarding the disagreement would hide a wrong clock.
+    #[test]
+    fn an_offset_conflict_is_warned_about_without_dropping_the_photo() {
+        let extracted = gate(vec![extraction(
+            "/photos/a.cr3",
+            ExtractionKind::Resolved {
+                captured: DateTime::from_timestamp(1000, 0).expect("a valid test instant"),
+                conflict_warning: Some("EXIF timezone disagrees".to_string()),
+            },
+        )])
+        .expect("a conflict is a warning, not a gate condition");
+
+        assert_eq!(extracted.photos.len(), 1);
+        assert_eq!(extracted.warnings.len(), 1);
     }
 
     #[test]
@@ -769,9 +866,104 @@ mod tests {
 
     #[test]
     fn extension_matching_ignores_case() {
-        assert!(has_extension(Path::new("/photos/IMG_1234.CR3"), "cr3"));
-        assert!(has_extension(Path::new("/photos/IMG_1234.cr3"), "cr3"));
-        assert!(!has_extension(Path::new("/photos/IMG_1234.jpg"), "cr3"));
-        assert!(!has_extension(Path::new("/photos/IMG_1234"), "cr3"));
+        assert!(matches_format(
+            Path::new("/photos/IMG_1234.CR3"),
+            RawFormat::Cr3
+        ));
+        assert!(matches_format(
+            Path::new("/photos/IMG_1234.cr3"),
+            RawFormat::Cr3
+        ));
+        assert!(!matches_format(
+            Path::new("/photos/IMG_1234.jpg"),
+            RawFormat::Cr3
+        ));
+        assert!(!matches_format(
+            Path::new("/photos/IMG_1234"),
+            RawFormat::Cr3
+        ));
+    }
+
+    /// One format's files must not be picked up by a run for another, which is
+    /// the property the walk gets from filtering on the format's own table.
+    #[test]
+    fn a_run_for_one_format_does_not_collect_another() {
+        assert!(!matches_format(
+            Path::new("/photos/DSC_0001.NEF"),
+            RawFormat::Cr3
+        ));
+        assert!(matches_format(
+            Path::new("/photos/DSC_0001.NEF"),
+            RawFormat::Nef
+        ));
+    }
+
+    fn written(path: &str, kind: WrittenKind) -> Written {
+        Written {
+            path: PathBuf::from(path),
+            kind,
+        }
+    }
+
+    #[test]
+    fn every_write_outcome_lands_in_exactly_one_counter() {
+        let tally = tally_writes(
+            vec![
+                written(
+                    "/photos/a.cr3",
+                    WrittenKind::Tagged {
+                        fix: Fix {
+                            lat: 47.0,
+                            lon: -122.0,
+                            ele: None,
+                        },
+                    },
+                ),
+                written("/photos/b.cr3", WrittenKind::OutsideTrack),
+                written(
+                    "/photos/c.cr3",
+                    WrittenKind::InGap {
+                        description: "falls in a track gap".to_string(),
+                    },
+                ),
+                written("/photos/d.cr3", WrittenKind::SidecarExists),
+                written(
+                    "/photos/e.cr3",
+                    WrittenKind::Failed {
+                        error: "disk full".to_string(),
+                    },
+                ),
+            ],
+            false,
+        );
+
+        assert_eq!(tally.tagged, 1);
+        assert_eq!(tally.outside_track, 1);
+        assert_eq!(tally.in_gap, 1);
+        assert_eq!(tally.sidecar_exists, 1);
+        assert_eq!(tally.failed, 1);
+        // Every skip is explained; the tagged file is not a warning.
+        assert_eq!(tally.warnings.len(), 4);
+    }
+
+    /// Positions are collected only under `--verbose` — the run is otherwise
+    /// holding a string per tagged photo for output nobody asked for.
+    #[test]
+    fn per_file_positions_are_collected_only_when_verbose() {
+        let tagged = || {
+            vec![written(
+                "/photos/a.cr3",
+                WrittenKind::Tagged {
+                    fix: Fix {
+                        lat: 47.0,
+                        lon: -122.0,
+                        ele: None,
+                    },
+                },
+            )]
+        };
+
+        assert!(tally_writes(tagged(), false).details.is_empty());
+        assert_eq!(tally_writes(tagged(), true).details.len(), 1);
     }
 }

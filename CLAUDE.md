@@ -144,7 +144,7 @@ own pass is the EXIF capture-time read.
 | Step | Where | Parallel? | Does |
 |---|---|---|---|
 | Phase A | `main`, `par_iter().map_init(MediaParser::new, ..)` → `extract` | yes | EXIF capture time **only** |
-| Gate | `main`, sequential scan for `Extraction::NeedsOffset` | no | abort the run, or let it proceed |
+| Gate | `main`, `gate()` consumes the extractions, looking for `ExtractionKind::NeedsOffset` | no | abort the run, or let it proceed |
 | Phase B | `main`, `into_par_iter()` → `write_one` → `write_sidecar` | yes | `track.lookup` interpolate → `xmp::render` → `xmp::write_atomic` |
 
 **Why phase A exists at all — the gate.** A capture time with no timezone and no

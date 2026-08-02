@@ -160,23 +160,40 @@ pub fn capture_time(
 /// a format description per shape, so accepting both forms would mean two parse
 /// attempts and two descriptions to hold correct.
 pub fn parse_offset(text: &str) -> Option<FixedOffset> {
-    let (sign, rest) = match text.trim().strip_prefix('+') {
+    let text = text.trim();
+    let (sign, rest) = match text.strip_prefix('+') {
         Some(rest) => (1, rest),
-        None => (-1, text.trim().strip_prefix('-')?),
+        None => (-1, text.strip_prefix('-')?),
     };
 
-    let digits: String = rest.chars().filter(|c| *c != ':').collect();
-    if digits.len() != 4 || !digits.chars().all(|c| c.is_ascii_digit()) {
-        return None;
-    }
+    // A colon is tolerated only where EXIF actually puts one. Filtering colons out
+    // wherever they appear — the previous shape — accepted `+0:0:00` and `+::0700`
+    // as valid offsets, and a bad offset is a whole shoot in the wrong place.
+    let (hours, minutes) = match rest.split_once(':') {
+        Some(halves) => halves,
+        None if rest.len() == 4 => rest.split_at(2),
+        None => return None,
+    };
 
-    let hours: i32 = digits[..2].parse().ok()?;
-    let minutes: i32 = digits[2..].parse().ok()?;
-    if minutes > 59 {
+    let hours = two_digits(hours)?;
+    let minutes = two_digits(minutes)?;
+    // Both bounds stated here rather than leaving hours to be caught incidentally
+    // by `east_opt` rejecting anything past 23:59:59.
+    if hours > 23 || minutes > 59 {
         return None;
     }
 
     FixedOffset::east_opt(sign * (hours * 3600 + minutes * 60))
+}
+
+/// Exactly two ASCII digits as a number: `"07"` is 7, while `"7"`, `"7a"` and
+/// `"+7"` are all rejected.
+fn two_digits(text: &str) -> Option<i32> {
+    if text.len() == 2 && text.bytes().all(|byte| byte.is_ascii_digit()) {
+        text.parse().ok()
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -207,6 +224,32 @@ mod tests {
         for bad in ["", "0700", "-7", "-07000", "-0760", "+abcd", "Z"] {
             assert_eq!(parse_offset(bad), None, "{bad:?} should be rejected");
         }
+    }
+
+    /// A colon belongs between the hours and the minutes, nowhere else. These all
+    /// parsed before, because the old shape stripped every colon first and then
+    /// looked at whatever four digits were left.
+    #[test]
+    fn colons_are_only_accepted_between_the_hours_and_the_minutes() {
+        for bad in ["+0:0:00", "+::0700", "+07:0:0", "+:0700", "+0700:"] {
+            assert_eq!(parse_offset(bad), None, "{bad:?} should be rejected");
+        }
+    }
+
+    #[test]
+    fn out_of_range_hours_and_minutes_are_rejected() {
+        assert_eq!(parse_offset("+2400"), None);
+        assert_eq!(parse_offset("+9900"), None);
+        assert_eq!(parse_offset("+0060"), None);
+        // The extremes either side are still valid.
+        assert_eq!(
+            parse_offset("+23:59"),
+            FixedOffset::east_opt(23 * 3600 + 59 * 60)
+        );
+        assert_eq!(
+            parse_offset("-23:59"),
+            FixedOffset::west_opt(23 * 3600 + 59 * 60)
+        );
     }
 
     // ---- the gate rule ------------------------------------------------------
