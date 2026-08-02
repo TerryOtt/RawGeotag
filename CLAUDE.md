@@ -11,6 +11,11 @@ rather than quietly diverging.
 test.** It is the standing order: reach for every branch, and prove every test can
 fail.
 
+**Read [`docs/WRITING.md`](docs/WRITING.md) before writing documentation or a
+comment** — including edits to this file. Standing order: every document leads with
+what its reader came for, and for the README that reader is the 98% case who wants
+what it does and then a command that works.
+
 ## Project mantra
 
 **"Geotags off by more than 5 m from actual are worse than no geotags."** A missing

@@ -27,7 +27,7 @@ rawgeotag <DIR> <EXT> <GPX>... [OPTIONS]
   --max-gap <SECONDS>      refuse to interpolate across a longer hole [default: 60]
   --max-distance <METERS>  refuse to interpolate across a wider hole [default: 100]
   --force                  overwrite existing sidecars (default: skip with a warning)
-  --dry-run                do all work, write nothing
+  --dry-run                do all work, write nothing (add --force to preview one)
   -j, --jobs <N>           worker threads (default: 2; raise for network storage)
       --no-progress        suppress the progress bar
   -v, --verbose            per-file detail
@@ -331,7 +331,9 @@ the standing order, the mutation-checking bar, the doctrine on branches no fixtu
 reach, what to run, and the running mutation and determinism logs.
 
 It lived here for as long as this document was the only place decisions were written
-down. It had grown to a fifth of the file and was still growing — two tables were
+down. [`WRITING.md`](WRITING.md) went the same way for the same reason and records the
+rule both moves followed: when a section outgrows the document whose subject it is not,
+move it and leave a pointer. It had grown to a fifth of the file and was still growing — two tables were
 appended in a single day — and a standing order about how to work is a different genre
 from a design that is settled and finished. What remains in this document is the
 design; how it is held to account is next door.

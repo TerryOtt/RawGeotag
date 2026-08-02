@@ -1,5 +1,8 @@
 # Testing standard
 
+*How the documents themselves are written is [`WRITING.md`](WRITING.md); this file is
+the equivalent standing order for tests.*
+
 ## The standing order
 
 > **Reach for every branch, and prove every test can fail.**
