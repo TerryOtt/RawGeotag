@@ -789,7 +789,7 @@ struct Summary<'a> {
 /// **Every camera here is meant to be on UTC**, so a non-zero offset is a slip
 /// rather than a decision — see *Whose clock is it* in CLAUDE.md. Two shapes follow
 /// from that, the same concern from opposite ends: **more than one zone in a run**,
-/// meaning two bodies whose clocks disagree, and **a single zone that is not UTC**,
+/// meaning bodies whose clocks disagree, and **a single zone that is not UTC**,
 /// which displaces a whole shoot silently if the camera was set wrong. An all-UTC
 /// run says nothing at all.
 ///
