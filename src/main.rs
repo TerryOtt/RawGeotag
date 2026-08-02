@@ -575,11 +575,6 @@ fn tally_writes(results: Vec<Written>, verbose: bool) -> Tally {
     tally
 }
 
-/// Walk the tree, collecting matching files.
-///
-/// Materializing into a `Vec` before parallelizing gives rayon contiguous slices
-/// to split, which load-balances far better than bridging a sequential iterator.
-/// It also yields an exact denominator for the progress bar.
 /// Resolve the GPX arguments and build the index, reporting what it resolved to.
 ///
 /// Split out of `run` because it is one coherent step — resolve, load, describe —
@@ -825,8 +820,8 @@ fn describe_offsets(offsets: &BTreeMap<i32, usize>) -> Option<String> {
 }
 
 /// The one place the ignored-files line is laid out. It is printed from two paths —
-/// a run that found no raws at all, and a normal summary — and having each format it
-/// itself is how they drifted into different column widths.
+/// a run that found no raws at all, and a normal summary — and having each print
+/// site format it itself is how they drifted into different column widths.
 fn print_ignored(ignored: &BTreeMap<String, usize>) {
     if ignored.is_empty() {
         return;
@@ -1173,7 +1168,7 @@ mod tests {
     /// still pass every other test, and quietly change which photos get tagged.
     #[test]
     fn the_cli_gap_default_matches_the_shipped_limit() {
-        let args = Args::parse_from(["rawgeotag", "photos", "cr3", "track.gpx"]);
+        let args = Args::parse_from(["rawgeotag", "photos", "track.gpx"]);
 
         assert_eq!(
             TimeDelta::seconds(args.max_gap),
@@ -1354,15 +1349,15 @@ mod tests {
     /// other, so the mapping is worth pinning rather than assuming.
     #[test]
     fn write_settings_carry_the_flags_they_were_given() {
-        let args = Args::parse_from(["rawgeotag", "--force", "photos", "cr3", "track.gpx"]);
+        let args = Args::parse_from(["rawgeotag", "--force", "photos", "track.gpx"]);
         let forced = WriteSettings::from_args(&args);
         assert!(forced.force && !forced.dry_run);
 
-        let args = Args::parse_from(["rawgeotag", "--dry-run", "photos", "cr3", "track.gpx"]);
+        let args = Args::parse_from(["rawgeotag", "--dry-run", "photos", "track.gpx"]);
         let dry = WriteSettings::from_args(&args);
         assert!(dry.dry_run && !dry.force);
 
-        let args = Args::parse_from(["rawgeotag", "photos", "cr3", "track.gpx"]);
+        let args = Args::parse_from(["rawgeotag", "photos", "track.gpx"]);
         let plain = WriteSettings::from_args(&args);
         assert!(!plain.force && !plain.dry_run);
         assert_eq!(plain.limits.max_gap, GapLimits::DEFAULT.max_gap);

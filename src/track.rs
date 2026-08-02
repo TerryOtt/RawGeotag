@@ -378,9 +378,9 @@ fn distance_meters(a: TrackPoint, b: TrackPoint) -> f64 {
     let h = (delta_lat / 2.0).sin().powi(2)
         + lat_a.cos() * lat_b.cos() * (delta_lon / 2.0).sin().powi(2);
 
-    // `sqrt` cannot go negative, so only the upper bound can bite: rounding can
-    // push a near-antipodal `h` a hair above 1, where `asin` would return NaN.
-    2.0 * EARTH_RADIUS_M * h.sqrt().clamp(0.0, 1.0).asin()
+    // Rounding can push a near-antipodal `h` a hair above 1, where `asin` would
+    // return NaN. `sqrt` cannot go negative, so the ceiling is the only bound.
+    2.0 * EARTH_RADIUS_M * h.sqrt().min(1.0).asin()
 }
 
 /// Linear interpolation between two bracketing points.

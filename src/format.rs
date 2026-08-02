@@ -134,8 +134,9 @@ impl RawFormat {
             .any(|known| known.eq_ignore_ascii_case(ext))
     }
 
-    /// Every supported extension, for `--help` and for the error shown when an
-    /// unsupported one is given.
+    /// Every supported extension, joined for the summary's `Ignored` line — since
+    /// the extension argument was removed, the one place a user whose files were
+    /// passed over learns what would have been read.
     pub fn supported_extensions() -> String {
         Self::ALL
             .iter()
