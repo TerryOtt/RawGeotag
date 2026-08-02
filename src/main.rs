@@ -743,12 +743,14 @@ fn format_of(path: &Path) -> Option<RawFormat> {
 /// The extension to count this unreadable file under, lowercased so `.ARW` and
 /// `.arw` are one line in the report.
 ///
-/// `.xmp` is excluded because those are this tool's own output; a re-run would
-/// otherwise report its previous results back as ignored files. Extensionless
+/// `.xmp` is excluded because those are this tool's own output — a re-run would
+/// otherwise report its previous results back as ignored files — and `.gpx`
+/// because tracks are its input: one often sits beside the photos it covers, and
+/// "Ignored 1 .gpx" would read as the run disowning its own track. Extensionless
 /// files are excluded because there is nothing useful to name them by.
 fn ignorable_extension(path: &Path) -> Option<String> {
     let extension = path.extension()?.to_str()?.to_ascii_lowercase();
-    (extension != "xmp").then_some(extension)
+    (extension != "xmp" && extension != "gpx").then_some(extension)
 }
 
 fn progress_bar(len: usize, hidden: bool, message: &'static str) -> ProgressBar {
@@ -1715,11 +1717,18 @@ mod tests {
         assert_eq!(walk.ignored.get("arw"), Some(&1));
     }
 
-    /// Our own output must not be reported back as something we failed to read —
-    /// otherwise every re-run accuses itself of ignoring the sidecars it wrote.
+    /// The tool's own file types must not be reported back as something it failed
+    /// to read — a re-run would accuse itself of ignoring the sidecars it wrote,
+    /// and a track staged beside its photos would be disowned as "Ignored 1 .gpx".
     #[test]
-    fn our_own_sidecars_are_not_counted_as_ignored() {
-        let (_dir, walk) = walk_over(&["IMG_0001.CR3", "IMG_0001.xmp", "IMG_0002.XMP"]);
+    fn our_own_sidecars_and_tracks_are_not_counted_as_ignored() {
+        let (_dir, walk) = walk_over(&[
+            "IMG_0001.CR3",
+            "IMG_0001.xmp",
+            "IMG_0002.XMP",
+            "track.gpx",
+            "TRACK2.GPX",
+        ]);
 
         assert_eq!(walk.files.len(), 1);
         assert!(walk.ignored.is_empty(), "{:?}", walk.ignored);
