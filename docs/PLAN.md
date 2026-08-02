@@ -427,6 +427,29 @@ Exit non-zero if any file errored or the gate fired; zero if everything was eith
     option. Watch for the same shape wherever code is defensive about a case the
     current formats do not produce.
 
+    A deliberate sweep for others followed, and found four more. Each was confirmed
+    unreachable by mutating it and watching the whole suite pass, then closed:
+
+    | Branch no fixture reaches | Why the fixtures cannot reach it | Now held by |
+    |---|---|---|
+    | the `CreateDate` / `OffsetTimeDigitized` fallback pair | every fixture file carries `DateTimeOriginal`, so the first tag always wins | `capture_tags_are_the_spec_pairs_in_priority_order` |
+    | `MediaSource` failing to open or parse | every fixture file is a valid raw | `a_file_that_is_not_a_raw_reports_an_error_naming_it`, `an_empty_file_is_an_error_rather_than_a_panic` |
+    | dropping GPX points that carry no `<time>` | the fixture tracks are fully timestamped | `points_without_a_timestamp_are_dropped` |
+    | the summary's skipped total and its breakdown | the harness compares sidecars, never the printed summary | `every_skip_category_is_both_counted_and_named` |
+
+    The last of those was also fixed structurally rather than only tested: the total
+    and the reason list were a five-term sum and five separate `if` blocks, so a new
+    outcome had to be remembered in two places. Both now derive from one array in
+    `skip_breakdown`.
+
+    **Still uncovered, and recorded rather than papered over:** `nom_exif::Error::
+    ExifNotFound` mapping to `Capture::NoCaptureTime`. Reaching it needs a file
+    nom-exif recognises as media but that carries no EXIF at all; a text file or an
+    empty file fails earlier, at `MediaSource::open`, which is the path the two tests
+    above cover. Synthesising a valid-but-EXIF-less media file is possible but the
+    fixture would be doing more work than the branch is worth — it changes a per-file
+    diagnostic, not which photos get tagged.
+
     **That last row is the one worth reading the detail of, because the first
     attempt at it was decorative.** The test originally used plainly alphabetical
     filenames, so `WalkDir` already yielded them in sorted order and deleting the

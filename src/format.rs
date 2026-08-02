@@ -193,6 +193,34 @@ mod tests {
         }
     }
 
+    /// Pinned rather than derived, because **no fixture reaches the second entry**:
+    /// every fixture file carries `DateTimeOriginal`, so the `CreateDate` fallback
+    /// can be deleted and the whole suite plus all three aggregates still pass. It
+    /// exists for bodies that write only `CreateDate`, and the order is part of the
+    /// contract — `capture_time` takes the first tag that resolves.
+    ///
+    /// If a format ever legitimately diverges here, split this into per-format
+    /// expectations rather than loosening it.
+    #[test]
+    fn capture_tags_are_the_spec_pairs_in_priority_order() {
+        for format in RawFormat::ALL {
+            assert_eq!(
+                format.capture_tags(),
+                &[
+                    CaptureTag {
+                        datetime: ExifTag::DateTimeOriginal,
+                        offset: ExifTag::OffsetTimeOriginal,
+                    },
+                    CaptureTag {
+                        datetime: ExifTag::CreateDate,
+                        offset: ExifTag::OffsetTimeDigitized,
+                    },
+                ],
+                "{format:?} capture tags drifted"
+            );
+        }
+    }
+
     #[test]
     fn unknown_extension_is_rejected() {
         assert_eq!(RawFormat::from_extension("jpg"), None);

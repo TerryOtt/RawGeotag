@@ -605,35 +605,33 @@ struct Summary<'a> {
     dry_run: bool,
 }
 
-fn print_summary(summary: &Summary) {
-    let skipped = summary.outside_track
-        + summary.in_gap
-        + summary.sidecar_exists
-        + summary.no_capture_time
-        + summary.failed;
+/// How many files were not tagged, and the breakdown by reason in report order.
+///
+/// Both come from one list on purpose. They used to be a five-term sum and five
+/// separate `if` blocks, which is two places to remember a new outcome — and the
+/// count going quietly wrong is not something any fixture would notice, since
+/// they compare sidecars rather than the summary.
+fn skip_breakdown(summary: &Summary) -> (usize, Vec<String>) {
+    let categories = [
+        (summary.outside_track, "outside track"),
+        (summary.in_gap, "in track gap"),
+        (summary.sidecar_exists, "existing sidecar"),
+        (summary.no_capture_time, "no capture time"),
+        (summary.failed, "errored"),
+    ];
 
-    let mut reasons = Vec::new();
-    if summary.outside_track > 0 {
-        reasons.push(format!("{} outside track", count(summary.outside_track)));
-    }
-    if summary.in_gap > 0 {
-        reasons.push(format!("{} in track gap", count(summary.in_gap)));
-    }
-    if summary.sidecar_exists > 0 {
-        reasons.push(format!(
-            "{} existing sidecar",
-            count(summary.sidecar_exists)
-        ));
-    }
-    if summary.no_capture_time > 0 {
-        reasons.push(format!(
-            "{} no capture time",
-            count(summary.no_capture_time)
-        ));
-    }
-    if summary.failed > 0 {
-        reasons.push(format!("{} errored", count(summary.failed)));
-    }
+    let total: usize = categories.iter().map(|(files, _)| files).sum();
+    let reasons = categories
+        .iter()
+        .filter(|(files, _)| *files > 0)
+        .map(|(files, reason)| format!("{} {reason}", count(*files)))
+        .collect();
+
+    (total, reasons)
+}
+
+fn print_summary(summary: &Summary) {
+    let (skipped, reasons) = skip_breakdown(summary);
 
     let rate = if summary.elapsed > 0.0 {
         summary.scanned as f64 / summary.elapsed
@@ -1069,6 +1067,65 @@ mod tests {
         let plain = WriteSettings::from_args(&args);
         assert!(!plain.force && !plain.dry_run);
         assert_eq!(plain.limits.max_gap, GapLimits::DEFAULT.max_gap);
+    }
+
+    // ---- the summary's arithmetic --------------------------------------------
+
+    fn summary_of(
+        outside: usize,
+        gap: usize,
+        exists: usize,
+        no_time: usize,
+        failed: usize,
+    ) -> Summary<'static> {
+        Summary {
+            extension: "cr3",
+            scanned: 100,
+            tagged: 7,
+            outside_track: outside,
+            in_gap: gap,
+            sidecar_exists: exists,
+            no_capture_time: no_time,
+            failed,
+            elapsed: 1.0,
+            threads: 2,
+            dry_run: false,
+        }
+    }
+
+    /// Distinct powers of two, so an outcome dropped from the total is identifiable
+    /// from the total alone rather than just "wrong".
+    #[test]
+    fn every_skip_category_is_both_counted_and_named() {
+        let (skipped, reasons) = skip_breakdown(&summary_of(1, 2, 4, 8, 16));
+
+        assert_eq!(skipped, 31);
+        assert_eq!(
+            reasons,
+            [
+                "1 outside track",
+                "2 in track gap",
+                "4 existing sidecar",
+                "8 no capture time",
+                "16 errored",
+            ]
+        );
+    }
+
+    #[test]
+    fn skip_categories_with_no_files_are_not_named() {
+        let (skipped, reasons) = skip_breakdown(&summary_of(0, 3, 0, 0, 0));
+
+        assert_eq!(skipped, 3);
+        assert_eq!(reasons, ["3 in track gap"]);
+    }
+
+    /// The summary is the only place a reader learns a file was skipped, so the
+    /// counts have to carry separators like every other user-facing number.
+    #[test]
+    fn skip_counts_carry_thousands_separators() {
+        let (_, reasons) = skip_breakdown(&summary_of(0, 1_489, 0, 0, 0));
+        assert_eq!(reasons, ["1,489 in track gap"]);
     }
 
     // ---- collect_paths -------------------------------------------------------

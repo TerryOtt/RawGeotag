@@ -261,6 +261,53 @@ mod tests {
         );
     }
 
+    // ---- files that are not what their extension claims ----------------------
+    //
+    // Unreachable from the fixtures, which contain only files that parse. A
+    // renamed JPEG, a truncated download or a stray text file with a raw
+    // extension all land here, and the required behaviour is a per-file error
+    // naming the file — not a panic, and not a silent skip that would let the run
+    // exit zero having quietly tagged nothing.
+
+    #[test]
+    fn a_file_that_is_not_a_raw_reports_an_error_naming_it() {
+        // Both strategies, since they build the `MediaSource` differently:
+        // `Streaming` opens the path, `WholeFile` reads it into memory first.
+        for (format, name) in [
+            (RawFormat::Cr3, "IMG_9999.CR3"),
+            (RawFormat::Nef, "DSC_9999.NEF"),
+        ] {
+            let dir = tempfile::tempdir().expect("creating the scratch directory");
+            let path = dir.path().join(name);
+            std::fs::write(&path, b"not a raw file at all").expect("writing the decoy");
+
+            let mut parser = MediaParser::new();
+            // Not `expect_err`: that needs `Capture: Debug`, and deriving it buys
+            // nothing outside this one line.
+            let error = match capture_time(&mut parser, &path, format, None) {
+                Err(error) => error,
+                Ok(_) => panic!("{name} is not a {format:?} and must not resolve"),
+            };
+
+            let rendered = format!("{error:#}");
+            let stem = name.split('.').next().expect("a file stem");
+            assert!(
+                rendered.contains(stem),
+                "the error should name the file it failed on, got {rendered:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_empty_file_is_an_error_rather_than_a_panic() {
+        let dir = tempfile::tempdir().expect("creating the scratch directory");
+        let path = dir.path().join("IMG_0000.CR3");
+        std::fs::write(&path, b"").expect("writing an empty file");
+
+        let mut parser = MediaParser::new();
+        assert!(capture_time(&mut parser, &path, RawFormat::Cr3, None).is_err());
+    }
+
     // ---- the CR3 timezone trap ----------------------------------------------
     //
     // These are the only thing holding the `Aware` arm of `exif_offset`. Every CR3

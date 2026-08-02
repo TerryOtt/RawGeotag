@@ -873,6 +873,32 @@ mod tests {
         path
     }
 
+    /// Real tracks carry untimed points — POI markers, route shaping points.
+    /// They cannot be correlated with a photo, so they must not enter the index:
+    /// admitting one with a stand-in timestamp would put a bogus position into the
+    /// binary search. No fixture reaches this — the fixture tracks are all fully
+    /// timestamped — so this test is the only thing holding it.
+    #[test]
+    fn points_without_a_timestamp_are_dropped() {
+        let dir = scratch_dir();
+        let path = dir.path().join("mixed.gpx");
+        std::fs::write(
+            &path,
+            r#"<?xml version="1.0"?><gpx version="1.1" creator="test"><trk><trkseg>
+               <trkpt lat="47.0" lon="-122.0"><time>2022-01-01T00:00:00Z</time></trkpt>
+               <trkpt lat="47.5" lon="-122.5"/>
+               <trkpt lat="48.0" lon="-123.0"><time>2022-01-01T00:00:10Z</time></trkpt>
+               </trkseg></trk></gpx>"#,
+        )
+        .expect("writing the test GPX");
+
+        let track = Track::load(&[path]).expect("the file is valid");
+
+        assert_eq!(track.point_count(), 2);
+        // A kept-but-undated point would land at the epoch and drag the span with it.
+        assert_eq!(track.span(), (at(1_640_995_200), at(1_640_995_210)));
+    }
+
     #[test]
     fn several_files_load_into_one_index() {
         let dir = scratch_dir();
