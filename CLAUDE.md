@@ -748,29 +748,45 @@ performance benefit that does not exist.
   `Get-ChildItem -LiteralPath <dir> -Filter *.ext -Force`, and confirm with
   `Test-Path` before believing any count that suggests files vanished.
 
-### Copy routing — "same chassis" is the *slowest* route, not the fastest
+### Copy routing — *who* runs the copy decides whether the bytes leave the chassis
 
-**Measured 2026-08-02 moving the 3,883-file Rockies day (187.5 GB) around, with
-`robocopy /MT:16`:**
+> **Read this before quoting the `Q:\`→`N:\` number below.** Terry moves data between
+> the shares with **QNAP File Station**, which runs *on the NAS*: that copy is genuinely
+> chassis-local and never touches the network. Claude cannot do that — a `robocopy` or
+> `Copy-Item` from Windows is **client-mediated**, and pulls every byte down and pushes
+> it back up regardless of both shares living on one box. **The 128 MB/s below measures
+> Claude's route, not the route.** An earlier version of this section framed it as
+> "same chassis is the slowest route", which is exactly backwards as advice: the
+> on-chassis path is the fast one and Claude simply has no access to it.
+>
+> **So for a large `Q:\`→`N:\` stage, the division of labour is: Terry does it in File
+> Station.** If Claude must do it unattended, go via `C:\`. Never assume a client-side
+> copy stays on the NAS.
+
+**Measured 2026-08-02 moving the 3,883-file Rockies day (187.5 GB) around, all of it
+client-mediated with `robocopy /MT:16` — this table is entirely about Claude's routes:**
 
 | Route | Sustained | What it is |
 |---|---|---|
 | `C:\` → `N:\` | **611 MB/s** | local read, one crossing — **98% of the 5 Gbps link** |
 | `N:\` → `C:\` | 283-522 MB/s | see the variance note below |
 | `Q:\` → `C:\` | 250-495 MB/s | HDD read, one crossing |
-| `Q:\` → `N:\` | **128 MB/s** | **the obvious route, and the worst one** |
+| `Q:\` → `N:\` | **128 MB/s** | the one to avoid **from Windows** — see the box above |
 
-**Both shares live on one NAS, and that buys nothing.** The intuition — same chassis,
-so the bytes should never leave it — assumes SMB server-side copy offload
-(`FSCTL_SRV_COPYCHUNK`), and this NAS does not do it for a cross-share copy. Every byte
-comes *down* to this machine and goes back *up*, crossing the same 5 Gbps link twice,
-which is why 128 MB/s is almost exactly half the slower `Q:\`→`C:\` figure.
+**Why the same-chassis copy is the slow one *when Claude runs it*.** Both shares live
+on one NAS, so the bytes ought never to leave it — but that requires either SMB
+server-side copy offload (`FSCTL_SRV_COPYCHUNK`), which this NAS does not do across
+shares, or a copy initiated on the NAS itself, which File Station is and `robocopy` is
+not. Failing both, every byte comes *down* to this machine and goes back *up*, crossing
+the same 5 Gbps link twice — which is why 128 MB/s is almost exactly half the slower
+`Q:\`→`C:\` figure. Nothing about the arrays explains it; the arithmetic does.
 
-**So to fill `N:\` from the archive, go through `C:\` — two copies are faster than
-one.** Direct is ~24 min; `Q:\`→`C:\` then `C:\`→`N:\` is ~11-18 min for the same
-bytes. If a local copy already exists, the second leg alone is ~5 min at line rate.
-**The tell that a future NAS does support offload is throughput far above ~625 MB/s**,
-which is impossible if the bytes are really crossing the wire.
+**So if Claude must fill `N:\` from the archive unattended, go through `C:\` — two
+copies beat one.** Direct is ~24 min; `Q:\`→`C:\` then `C:\`→`N:\` is ~11-18 min for
+the same bytes, and if a local copy already exists the second leg alone is ~5 min at
+line rate. **The tell that a future NAS does support offload is throughput far above
+~625 MB/s**, which is impossible if the bytes really cross the wire. None of this
+competes with just asking Terry to run it in File Station.
 
 **Variance caveat, unexplained and worth respecting.** Two independent pairs showed the
 *second* consecutive 188 GB write to `C:\` running at roughly half the first:
