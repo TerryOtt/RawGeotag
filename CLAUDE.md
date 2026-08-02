@@ -20,8 +20,13 @@ what it does and then a command that works.
 
 **"Geotags off by more than 5 m from actual are worse than no geotags."** A missing
 tag is visibly missing; a wrong one looks authoritative and silently corrupts the
-photo's provenance. Whenever coverage trades against positional accuracy, take
-accuracy — never clamp, extrapolate, or bridge a hole to raise the tagged count.
+photo's provenance. So **a tag is a nice-to-have, earned only where the track
+genuinely supports one** — never clamp, extrapolate, or bridge a hole to raise the
+tagged count.
+
+Say it that way round when it comes up. "Accuracy before coverage" is the same rule
+stated as an abstraction, and it does not land — the concrete pair is *no tag* versus
+*wrong tag*, and the answer is always no tag.
 
 ## Binding constraints
 

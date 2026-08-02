@@ -16,12 +16,16 @@ the only one a conflict is resolved in favor of. See
 [XMP sidecars](#xmp-sidecars-and-who-they-are-written-for) for what that does and does
 not promise.
 
-**Accuracy comes before coverage: a geotag off by more than 5 m is worse than no
-geotag at all.** A missing tag is visibly missing and you know to go and fix it; a
-wrong one looks authoritative and quietly corrupts the photo's own record of where it
-was taken. So this tool will not clamp, extrapolate, or bridge a hole in the track to
-raise the number of photos it can claim to have tagged. [Do no harm](#do-no-harm) is
-the other half of that, and shapes every default.
+**No tag is always better than a wrong tag** — a geotag off by more than 5 m is worse
+than no geotag at all. A missing tag is visibly missing and you know to go and fix it;
+a wrong one looks authoritative and quietly corrupts the photo's own record of where it
+was taken.
+
+So a tag here is a **nice-to-have, written only where the track genuinely supports
+one.** This tool will not clamp, extrapolate or bridge a hole to raise the number of
+photos it can claim to have tagged — where it is not confident, it leaves the photo
+alone and tells you why. [Do no harm](#do-no-harm) is the other half of that, and
+shapes every default.
 
 ## Quick start
 
@@ -119,8 +123,8 @@ pass tags only what the earlier one left alone.
   can leave and return between two nearby fixes, so a 140-second hole with only 8 m
   between its endpoints is still untrustworthy, and only the time limit rejects it.
   A short hole with large separation means genuine fast movement, and only the
-  distance limit rejects that. This is the 5 m accuracy rule from the top of this
-  file, applied.
+  distance limit rejects that. These two limits are where "no tag beats a wrong tag"
+  stops being a slogan and starts deciding individual photos.
 - **Existing sidecars** are skipped with a warning. `--force` overwrites them
   wholesale, discarding any develop settings, keywords or crops another tool stored
   there — read [Do no harm](#do-no-harm) before using it.
@@ -326,8 +330,8 @@ ceiling that makes a clean `cargo update` a poor indicator of being current.
 
 ## Design constraints
 
-- **Accurate before complete.** A geotag off by more than 5 m is worse than none, so
-  coverage is never bought at the cost of position.
+- **No tag beats a wrong tag.** A geotag off by more than 5 m is worse than none, so a
+  tag is written only where the track supports one — never to raise the count.
 - **Do no harm.** Raws are never touched, existing sidecars are never merged or
   partially written, and the only destructive operation is one you have to ask for by
   name — see [Do no harm](#do-no-harm).
