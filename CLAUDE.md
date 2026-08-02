@@ -7,7 +7,8 @@ design is settled there — CLI shape, crates, module layout, concurrency model.
 re-litigate decisions it already records; if you think one is wrong, say so explicitly
 rather than quietly diverging.
 
-**"Deep dive review" always means all four:** code, unit tests, code comments (in the
+**"Deep dive review" always means all four:** code, tests (unit and the process-level
+`tests/cli.rs` alike), code comments (in the
 code *and* in the tests), and docs (`docs/` *and* this file). Terry has had to ask for
 these separately and should not have to; changing any one is reason to check the other
 three. [`docs/REVIEWING.md`](docs/REVIEWING.md) has the table of what stales what, and
@@ -323,7 +324,7 @@ which is what separates this from the hyperscale case where the instinct is righ
 
 ## Status
 
-Implemented. Builds clean, the unit test suite passes, `cargo clippy --all-targets
+Implemented. Builds clean, the test suite passes, `cargo clippy --all-targets
 -- -D warnings` is clean. **`--all-targets` is the form that matters** — without it
 clippy does not lint test code at all, and there is more of that here than there is
 implementation. (No count here on purpose —

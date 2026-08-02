@@ -109,6 +109,11 @@ all, and there is more of that here than there is implementation. The release bu
 comes before the harness, which
 runs `target\release\rawgeotag.exe` and throws if it is missing.
 
+`cargo test` runs two kinds of test in one command: the unit suites inside each
+module, and `tests/cli.rs`, which drives the built binary over synthetic input —
+exit codes, refusals and early returns, the branches `run()` keeps to itself.
+Anything that needs a real raw belongs to the fixture harness below, not there.
+
 ### The fixtures — every format, every time
 
 `verify-fixtures.ps1` — invoked as in *What to run* above, since cmd cannot run a

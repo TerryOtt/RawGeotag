@@ -176,7 +176,8 @@ The policy is not licence to relitigate. Specifically:
 for them separately:**
 
 1. **Code**
-2. **Unit tests** — held to [`TESTING.md`](TESTING.md), not merely "they pass"
+2. **Tests** — unit and process-level alike, held to [`TESTING.md`](TESTING.md), not
+   merely "they pass"
 3. **Code comments** — in the code *and* in the tests
 4. **Docs** — `docs/` *and* `CLAUDE.md`
 
