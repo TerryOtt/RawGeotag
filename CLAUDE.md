@@ -779,6 +779,18 @@ a shoot sits near either end of its local day, and the report — which reads th
 name as a UTC day — will show it as a miss. `-SlackHours 12` is the fix. Do not
 "correct" either naming convention to match the other; they are both intentional.
 
+**Resolving that properly needs a timezone database, and Terry declined it on
+2026-08-03 — do not re-propose it.** His words: *"let's keep the tools UTC native."*
+The offer was a local `timezone-boundary-builder` dataset for the two PowerShell
+scripts, so a lat/lon could become a real zone; a lookup *API* was ruled out first and
+separately, because it would send his photo coordinates to a third party — constraint
+7's concern with a different recipient. Everything stays UTC-native: `rawgeotag` never
+computes a local time at all, and the scripts estimate one from longitude only to
+compare against a filename, re-testing across ±2 h so the estimate cannot manufacture
+a false hit. The residue is that a case landing within an hour of local midnight needs
+checking by hand — which is a known, bounded, once-in-a-while cost, and the reason the
+report is a shortlist that `--dry-run` adjudicates.
+
 ### Staging for *speed* is a much narrower case than it looks
 
 **The rule: staging pays only when the format reads whole files AND you will read

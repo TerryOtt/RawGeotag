@@ -58,6 +58,11 @@ in fact covers it, or vice versa. **`-SlackHours 12` is the fix, and is worth re
 for whenever a result looks wrong by exactly one day.** The report is a shortlist, not
 an adjudicator; `--dry-run` settles it.
 
+Resolving it exactly would need a timezone database, which was **considered and
+declined on 2026-08-03** — everything here stays UTC-native. See constraint 7's
+neighbourhood in [`../CLAUDE.md`](../CLAUDE.md) for the reasoning, including why a
+lookup *API* was the worse of the two options rather than the easier one.
+
 **DNG is counted but never geotaggable.** `rawgeotag` reads CR3 and NEF only, so a
 folder can look short of sidecars because it holds Lightroom's HDR merges. The column
 exists so the manifest does not quietly imply otherwise.
