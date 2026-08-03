@@ -46,12 +46,17 @@ answer more than once, and both directions have shown up: 2,256 raws with a cove
 track that were all inside one 6.7-hour hole in it, and a day whose only track ended
 two hours before the first frame.
 
-**A directory is matched to a track by its name.** `Q:\Lightroom\Images\<year>\<date>`
-is the archive's convention, so the report intersects each track's span with the UTC
-day the folder is named for. Terry's cameras are set to UTC, which is what makes that
-sound — but a shoot running past midnight, or a body left on local time, can put frames
-outside the day their folder names. `-SlackHours 12` widens the window on both sides
-when chasing one.
+**A directory is matched to a track by its name, and the match is approximate on
+purpose.** `Q:\Lightroom\Images\<year>\<date>` is the archive's convention, so the
+report intersects each track's span with the day the folder is named for.
+
+**That folder date is a *local* date; track times are UTC.** The report treats the
+name as a UTC day anyway, because converting properly would need a timezone database
+and the track's own coordinates. The error is bounded by the zone offset — up to ~12
+hours — so a shoot near either end of its local day can appear to miss a track that
+in fact covers it, or vice versa. **`-SlackHours 12` is the fix, and is worth reaching
+for whenever a result looks wrong by exactly one day.** The report is a shortlist, not
+an adjudicator; `--dry-run` settles it.
 
 **DNG is counted but never geotaggable.** `rawgeotag` reads CR3 and NEF only, so a
 folder can look short of sidecars because it holds Lightroom's HDR merges. The column

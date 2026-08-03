@@ -772,6 +772,13 @@ so a covering track and 2,256 untagged raws can still mean nothing to do. One sh
 proved it — every frame sat inside a single 6.7-hour hole in the day's only track.
 **Confirm a candidate with `--dry-run` before reporting that there is work available.**
 
+**Two date conventions meet here, and they are not the same clock.** Photo folder names
+and GPX filenames are both **local** dates; GPX track points and EXIF capture times are
+**UTC**. So a folder and a track that belong together can be named a day apart whenever
+a shoot sits near either end of its local day, and the report — which reads the folder
+name as a UTC day — will show it as a miss. `-SlackHours 12` is the fix. Do not
+"correct" either naming convention to match the other; they are both intentional.
+
 ### Staging for *speed* is a much narrower case than it looks
 
 **The rule: staging pays only when the format reads whole files AND you will read
