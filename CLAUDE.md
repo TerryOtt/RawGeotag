@@ -69,12 +69,16 @@ stated as an abstraction, and it does not land — the concrete pair is *no tag*
 
 4. **Raw files are never modified.** Output is sidecars only.
 
-Constraints 1-4 above bind the **code**. The two below bind **you, Claude, as an
+Constraints 1-4 above bind the **code**. The three below bind **you, Claude, as an
 operator of it** — they are not product requirements, and the distinction is the
 whole point of them. Terry keeps every capability the tool has, including the
 destructive ones. What is being removed is *your* ability to do irreversible harm,
 not his. If data gets destroyed, the only person who should be able to have caused
 it is him.
+
+Constraints 5 and 6 are about **destroying** what is on `Q:\`. Constraint 7 is about
+**publishing** it, which is irreversible in its own way and was the one nobody had
+written down.
 
 5. **On `Q:\`, you may read anything and create a new `.xmp`. Nothing else, ever.**
    You must never remove or overwrite a file there, for any reason — no exception,
@@ -112,6 +116,28 @@ it is him.
 
    Consequence to accept rather than engineer around: **a photo that already has a
    Lightroom sidecar does not get geotagged by you.** Say so and move on.
+
+7. **Ask before anything derived from `Q:\` goes into this repository. Every time,
+   no standing permission.** **This repository is public.** Terry's instruction,
+   given 2026-08-03: ask him before exposing direct or derived data from `Q:\` to
+   the public repo, every time.
+
+   **"Derived" is as broad as it sounds, and that breadth is the rule.** Not just a
+   copy of a file — a directory listing, a manifest, per-shoot counts, a folder tree,
+   a GPX span, coordinates, a sample of program output that names real paths. The
+   test is not "is this sensitive?", which invites you to decide on his behalf; it is
+   **"did this come from `Q:\`?"** If yes, ask. He answers quickly and the question
+   costs nothing; the mistake costs a `git push` that cannot be taken back.
+
+   **This is not hypothetical and the rule exists because it was broken.** On
+   2026-08-03 I committed and pushed `inventory/*.csv` — a listing of every shoot in
+   the archive with dates and frame counts — to a public repository without asking.
+   Untracking them the same day left them in the published history. **The moment to
+   ask was before the push, and there is no later moment that substitutes for it.**
+
+   Note the asymmetry with constraint 5, which *permits* creating a sidecar on `Q:\`
+   unasked. Writing a file to the archive is the tool's purpose and is reversible by
+   him. Publishing what is in the archive is neither.
 
 **Do not build these rules into the tool.** No drive-letter check, no `x:xmptk`
 guard on `--force`, no confirmation prompt — `--force` stays exactly as destructive
