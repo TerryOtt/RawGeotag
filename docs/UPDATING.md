@@ -102,6 +102,41 @@ recommended from memory on the day v7.0.1 was current. The usual reason a bump i
 needed is the runner dropping a Node version, so check what the action runs on
 (`using:` in its `action.yml`) rather than assuming the tag is cosmetic.
 
+### The toolchain is not a dependency either
+
+`cargo outdated` sees crates. It does not see rustup, the stable toolchain, or the
+MSVC linker every build here goes through, and nothing else in this process would
+notice any of them being behind.
+
+rustup answers for both itself and the toolchain in one line:
+
+```
+rustup check
+```
+
+The MSVC side has no such command, and the obvious substitute is the misleading one.
+**`winget upgrade --id Microsoft.VisualStudio.BuildTools` answers from winget's own
+source, which lags the Visual Studio release channel** — so "No available upgrade
+found" is consistent with being behind, in the same way a clean `cargo update` is. Ask
+the channel manifest instead, which is what the VS Installer itself serves updates
+from, and compare it against what is installed:
+
+```powershell
+$vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+$have = (& $vswhere -products * -format json | ConvertFrom-Json).installationVersion
+$want = (Invoke-RestMethod https://aka.ms/vs/18/stable/channel).channelItems |
+        Where-Object id -eq 'Microsoft.VisualStudio.Product.BuildTools' |
+        Select-Object -ExpandProperty version
+"installed $have / channel $want"
+```
+
+**Compare those two fields specifically.** The manifest also carries
+`info.productDisplayVersion`, which is the same release written the marketing way —
+`18.8.2` where `installationVersion` says `18.8.12023.21` — and is the form winget
+reports. Comparing one against the other reads as a mismatch on a machine that is
+perfectly current. The `18` in the URL is the VS major version, and is the one thing
+here that has to be edited by hand rather than asked for.
+
 ## Step 3 — verify, and mean it
 
 ```
@@ -113,6 +148,14 @@ pwsh -NoProfile -File .\scripts\verify-fixtures.ps1
 
 The release build comes first because `verify-fixtures.ps1` runs
 `target\release\rawgeotag.exe` and throws if it is not there.
+
+**If the toolchain or Build Tools moved, `cargo clean` before that build.** Cargo
+fingerprints `rustc`, not the linker, so a new MSVC toolset or CRT changes what the
+binary is built from while cargo sees nothing to redo. Nothing relinks, and
+`verify-fixtures.ps1` — which never builds — then re-checks bytes the *old* linker
+produced, and passes. A silent false pass is the one outcome this step exists to
+prevent, so spend the half minute rather than work out whether this particular change
+needed it.
 
 See [`TESTING.md`](TESTING.md) for what each of those checks is for.
 
@@ -201,6 +244,12 @@ crate version, so the output has no business changing. If a hash moves, **someth
 a dependency altered the coordinates or the document, and you want to know which**.
 Bisect the update — revert `Cargo.lock`, then re-apply one crate at a time with
 `cargo update -p <crate>` — rather than accepting the new number.
+
+**A toolchain or Build Tools upgrade is the same case**, by the same argument: it moves
+neither the packet nor a crate version, so all three aggregates must come back
+unchanged. There is no lockfile to bisect, so the question to answer instead is whether
+the previous binary was built by the previous linker — which is only a meaningful
+question if you ran `cargo clean`, and is the second reason Step 3 insists on it.
 
 ## Step 4 — commit the lockfile
 
