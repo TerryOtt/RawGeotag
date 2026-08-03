@@ -23,10 +23,15 @@ That one *does* walk the NAS and takes minutes, which is the entire reason its o
 is cached on disk rather than recomputed per question. It is read-only: nothing is
 created, modified or removed on `Q:\`.
 
-| File | One row per |
+| File | One record per |
 |---|---|
-| `inventory\photo-dirs.csv` | directory under `Q:\Lightroom\Images` holding a raw file — CR3, NEF, DNG and XMP counts |
-| `inventory\gpx-tracks.csv` | GPX file under `Q:\Photo GPX Tracks` — its true UTC span and point count |
+| `inventory\photo-dirs.json` | directory under `Q:\Lightroom\Images` holding a raw file — CR3, NEF, DNG and XMP counts |
+| `inventory\gpx-tracks.json` | GPX file under `Q:\Photo GPX Tracks` — its true UTC span and point count |
+
+**JSON, not CSV** — Terry's standing default for generated data files, and it earns
+itself here: the counts arrive as numbers. Under CSV every field came back a string,
+so the report cast `[int]` on each one, and a cast missed anywhere would have compared
+`"9"` against `"10"` as text and quietly preferred the wrong directory.
 
 **Both are gitignored, and that is not incidental.** They are a directory-level listing
 of a private photo library — every shoot, its date and how many frames it holds — and

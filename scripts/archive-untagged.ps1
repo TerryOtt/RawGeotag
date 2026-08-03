@@ -3,7 +3,7 @@
     Which shoots still have raws to geotag? Answered from inventory/, not the NAS.
 
 .DESCRIPTION
-    Joins inventory\photo-dirs.csv against inventory\gpx-tracks.csv and reports the
+    Joins inventory\photo-dirs.json against inventory\gpx-tracks.json and reports the
     directories holding CR3 or NEF files with fewer sidecars than raws. Runs in
     well under a second and touches no share; when the manifests are stale, refresh
     them with archive-inventory.ps1.
@@ -34,16 +34,16 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$photoCsv = Join-Path $InventoryDir 'photo-dirs.csv'
-$trackCsv = Join-Path $InventoryDir 'gpx-tracks.csv'
-foreach ($csv in $photoCsv, $trackCsv) {
-    if (-not (Test-Path -LiteralPath $csv)) {
-        throw "missing $csv -- run scripts\archive-inventory.ps1 first"
+$photoJson = Join-Path $InventoryDir 'photo-dirs.json'
+$trackJson = Join-Path $InventoryDir 'gpx-tracks.json'
+foreach ($file in $photoJson, $trackJson) {
+    if (-not (Test-Path -LiteralPath $file)) {
+        throw "missing $file -- run scripts\archive-inventory.ps1 first"
     }
 }
 
-$asOf = (Get-Item -LiteralPath $photoCsv).LastWriteTime
-$tracks = Import-Csv -LiteralPath $trackCsv | ForEach-Object {
+$asOf = (Get-Item -LiteralPath $photoJson).LastWriteTime
+$tracks = @(Get-Content -Raw -LiteralPath $trackJson | ConvertFrom-Json) | ForEach-Object {
     [pscustomobject] @{
         Track = $_.Track
         Start = [datetime]::Parse($_.StartUtc, [cultureinfo]::InvariantCulture,
@@ -56,9 +56,11 @@ $tracks = Import-Csv -LiteralPath $trackCsv | ForEach-Object {
 $tracked   = [System.Collections.Generic.List[object]]::new()
 $untracked = [System.Collections.Generic.List[object]]::new()
 
-foreach ($row in Import-Csv -LiteralPath $photoCsv) {
-    $raws = [int] $row.Cr3 + [int] $row.Nef
-    $untagged = $raws - [int] $row.Xmp
+# No [int] casts on the counts: JSON carries them as numbers already. That is the
+# whole reason these manifests are not CSV.
+foreach ($row in @(Get-Content -Raw -LiteralPath $photoJson | ConvertFrom-Json)) {
+    $raws = $row.Cr3 + $row.Nef
+    $untagged = $raws - $row.Xmp
     if ($raws -eq 0) { continue }
     if ($untagged -le 0 -and -not $ShowCovered) { continue }
 
@@ -78,7 +80,7 @@ foreach ($row in Import-Csv -LiteralPath $photoCsv) {
     $record = [pscustomobject] @{
         Dir      = $row.Dir
         Raws     = $raws
-        Xmp      = [int] $row.Xmp
+        Xmp      = $row.Xmp
         Untagged = $untagged
         Tracks   = $hits
     }

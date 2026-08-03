@@ -8,8 +8,12 @@
     half: a recursive walk of an 11 TB share over SMB takes minutes, which is the
     whole reason its results are committed.
 
-    inventory\photo-dirs.csv   one row per directory holding a raw file
-    inventory\gpx-tracks.csv   one row per GPX track, with its true UTC span
+    inventory\photo-dirs.json   one record per directory holding a raw file
+    inventory\gpx-tracks.json   one record per GPX track, with its true UTC span
+
+    JSON rather than CSV so the counts arrive as numbers. A CSV returns every field
+    as a string, which pushed an [int] cast into every reader -- and a missed cast
+    compares "9" against "10" as text and silently prefers the wrong one.
 
     Read-only. It creates nothing on Q:\ and modifies nothing there.
 
@@ -60,12 +64,13 @@ foreach ($path in [System.IO.Directory]::EnumerateFiles($ImageRoot, '*', $walk))
     }
 }
 
-$photoCsv = Join-Path $OutDir 'photo-dirs.csv'
+$photoJson = Join-Path $OutDir 'photo-dirs.json'
 $counts.Values |
     Where-Object { $_.Cr3 + $_.Nef + $_.Dng -gt 0 } |
     Sort-Object Dir |
     Select-Object @{ n = 'Dir'; e = { [System.IO.Path]::GetRelativePath($ImageRoot, $_.Dir) } }, Cr3, Nef, Dng, Xmp |
-    Export-Csv -LiteralPath $photoCsv -NoTypeInformation -Encoding utf8
+    ConvertTo-Json -Depth 3 -AsArray |
+    Set-Content -LiteralPath $photoJson -Encoding utf8
 
 Write-Host "walking $TrackRoot ..."
 $tracks = foreach ($path in [System.IO.Directory]::EnumerateFiles($TrackRoot, '*.gpx', $walk)) {
@@ -92,9 +97,14 @@ $tracks = foreach ($path in [System.IO.Directory]::EnumerateFiles($TrackRoot, '*
     }
 }
 
-$trackCsv = Join-Path $OutDir 'gpx-tracks.csv'
-$tracks | Sort-Object StartUtc | Export-Csv -LiteralPath $trackCsv -NoTypeInformation -Encoding utf8
+$trackJson = Join-Path $OutDir 'gpx-tracks.json'
+$tracks |
+    Sort-Object StartUtc |
+    ConvertTo-Json -Depth 3 -AsArray |
+    Set-Content -LiteralPath $trackJson -Encoding utf8
 
 Write-Host ''
-Write-Host ("{0,6} photo directories -> {1}" -f (Import-Csv $photoCsv).Count, $photoCsv)
-Write-Host ("{0,6} GPX tracks         -> {1}" -f (Import-Csv $trackCsv).Count, $trackCsv)
+Write-Host ("{0,6} photo directories -> {1}" -f
+    @(Get-Content -Raw -LiteralPath $photoJson | ConvertFrom-Json).Count, $photoJson)
+Write-Host ("{0,6} GPX tracks         -> {1}" -f
+    @(Get-Content -Raw -LiteralPath $trackJson | ConvertFrom-Json).Count, $trackJson)
