@@ -694,6 +694,26 @@ trial runs, benchmark sweeps, `--force`, anything re-runnable — happens on `N:
 in a temp directory. If a photo on `Q:\` already has a sidecar, it stays as it is;
 the answer is never to overwrite it.
 
+### "What is left to geotag?" — read the manifest, do not walk the archive
+
+A recurring question, and the naive answer is a recursive `Get-ChildItem` over 11 TB
+of SMB share that costs minutes every time it is asked. Two committed manifests under
+`inventory/` hold the answer instead:
+
+```
+pwsh -NoProfile -File .\scripts\archive-untagged.ps1
+```
+
+Sub-second, touches no share. [`docs/INVENTORY.md`](docs/INVENTORY.md) owns the rest —
+what the manifests contain, how a photo directory is matched to a track, when to
+refresh with `archive-inventory.ps1`, and why the count it prints is an **upper bound**
+rather than a forecast.
+
+That last point is the one to carry: the report does arithmetic on a directory listing,
+so a covering track and 2,256 untagged raws can still mean nothing to do. On
+2022-12-10 it did — every frame sat inside one 6.7-hour hole in the day's only track.
+**Confirm a candidate with `--dry-run` before reporting that there is work available.**
+
 ### Staging for *speed* is a much narrower case than it looks
 
 **The rule: staging pays only when the format reads whole files AND you will read
