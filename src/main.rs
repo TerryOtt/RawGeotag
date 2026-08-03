@@ -1377,7 +1377,7 @@ mod tests {
         assert_eq!(describe_offsets(&offsets_of(&[])), None);
     }
 
-    /// The Rockies body sat on `+01:00`. A whole shoot an hour out still tags,
+    /// Real shoots have arrived with the body on `+01:00`. A whole shoot an hour out still tags,
     /// because the shifted times land inside the track — so nothing else in the
     /// run would say a word about it.
     #[test]

@@ -7,10 +7,12 @@
     take different code paths -- RawFormat::read_strategy returns Streaming for one
     and WholeFile for the other -- so passing on one says nothing about the other.
 
-    Three fixtures, chosen so their timezone cases differ. That matters more than
-    the file count: a bug that dropped the EXIF offset entirely would pass Malta
-    (+00:00 is a no-op) and Sedona (no offset at all) while silently misplacing
-    every Rockies photo by ~50 km, which would still tag and never warn.
+    Three fixtures, chosen so their timezone cases differ -- and named for the case
+    each one covers, not for the shoot it came from. That matters more than the file
+    count: a bug that dropped the EXIF offset entirely would pass cr3-offset-utc
+    (+00:00 is a no-op) and nef-no-offset (no offset at all) while silently
+    misplacing every cr3-offset-nonzero photo by ~50 km, which would still tag and
+    never warn.
 
     Each fixture is run three times, which is why the loop below invokes the binary
     more than once: a dry run that must write nothing, the real run whose sidecars
@@ -22,7 +24,7 @@
     222 MB. See docs/FIXTURES.md for what the fixture holds and how to rebuild it.
 
 .PARAMETER FixtureRoot
-    Directory holding cr3-malta/, cr3-rockies/, nef-sedona/ and gpx/.
+    Directory holding cr3-offset-utc/, cr3-offset-nonzero/, nef-no-offset/ and gpx/.
 
 .PARAMETER Binary
     Path to rawgeotag.exe. Defaults to this repo's release build.
@@ -60,13 +62,13 @@ $ErrorActionPreference = 'Stop'
 # do differ in -- read strategy and timezone case -- is preserved exactly, which is
 # where all the coverage was. See "Bring your own raws" in docs/FIXTURES.md.
 $Fixtures = @(
-    @{ Name = 'cr3-malta';   Gpx = 'malta-2025-09-18.gpx';   Args = @();
+    @{ Name = 'cr3-offset-utc';     Gpx = 'cr3-offset-utc.gpx';     Args = @();
        Count = 2; Hash = 'CF2D1DA68FA359AA'
        Exercises = 'Streaming read path; EXIF offset +00:00 (present, no-op)' }
-    @{ Name = 'cr3-rockies'; Gpx = 'rockies-2022-09-27.gpx'; Args = @();
+    @{ Name = 'cr3-offset-nonzero'; Gpx = 'cr3-offset-nonzero.gpx'; Args = @();
        Count = 2; Hash = '047EF9B17BE64472'
        Exercises = 'Streaming read path; EXIF offset +01:00 (real conversion)' }
-    @{ Name = 'nef-sedona';  Gpx = 'sedona-2019-01-19.gpx';  Args = @('--utc-offset', '+0000');
+    @{ Name = 'nef-no-offset';      Gpx = 'nef-no-offset.gpx';      Args = @('--utc-offset', '+0000');
        Count = 2; Hash = 'F858DA7AA022AF2B'
        Exercises = 'WholeFile read path; no EXIF offset, so --utc-offset is required' }
 )

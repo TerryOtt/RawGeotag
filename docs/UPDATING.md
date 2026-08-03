@@ -192,7 +192,7 @@ A healthy run ends with `all fixtures pass` and exit code 0. Each fixture prints
 it is there to exercise, so the output is also the explanation:
 
 ```
-=== cr3-rockies ===
+=== cr3-offset-nonzero ===
     exercises: Streaming read path; EXIF offset +01:00 (real conversion)
     dry run  : wrote nothing  OK
     count    : 2 sidecars  OK
@@ -200,7 +200,7 @@ it is there to exercise, so the output is also the explanation:
     rehearsal: --dry-run --force left them untouched  OK
 ```
 
-(`nef-sedona` prints one more, `gate`, since it is the set whose body records no
+(`nef-no-offset` prints one more, `gate`, since it is the set whose body records no
 EXIF timezone.)
 
 (The real aggregates are in the harness and in [`FIXTURES.md`](FIXTURES.md); they are

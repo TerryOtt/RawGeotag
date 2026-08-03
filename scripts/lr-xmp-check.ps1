@@ -42,7 +42,7 @@
     # is just .\scripts\lr-xmp-check.ps1 -Stage.
 
 .EXAMPLE
-    pwsh -NoProfile -File .\scripts\lr-xmp-check.ps1 -Analyze "Q:\Lightroom\Images\2023\2023-05-06\DSC_0218.xmp"
+    pwsh -NoProfile -File .\scripts\lr-xmp-check.ps1 -Analyze "Q:\Lightroom\Images\<year>\<date>\<photo>.xmp"
 #>
 [CmdletBinding(DefaultParameterSetName = 'Stage')]
 param(
@@ -160,8 +160,8 @@ if ($PSCmdlet.ParameterSetName -eq 'Stage' -or $Stage) {
     if (-not (Test-Path $Binary)) { throw "rawgeotag not found at $Binary -- cargo build --release first" }
     if (-not (Test-Path $FixtureRoot)) { throw "fixture root not found at $FixtureRoot -- see docs/FIXTURES.md" }
 
-    $src = Join-Path (Resolve-Path $FixtureRoot) 'cr3-malta'
-    $gpxSrc = Join-Path (Resolve-Path $FixtureRoot) 'gpx\malta-2025-09-18.gpx'
+    $src = Join-Path (Resolve-Path $FixtureRoot) 'cr3-offset-utc'
+    $gpxSrc = Join-Path (Resolve-Path $FixtureRoot) 'gpx\cr3-offset-utc.gpx'
     $photo = Get-ChildItem -LiteralPath $src -Filter *.CR3 -Force | Sort-Object Name | Select-Object -First 1
     if (-not $photo) { throw "no CR3 found in $src" }
 
@@ -203,7 +203,7 @@ In Lightroom Classic — this part cannot be automated, see docs/LIGHTROOM-XMP.m
   Check 1 — does Lightroom still READ ours?   (~2 min)
     a. Import  $read  with **Add**.
     b. Look at the Map module, or the GPS field in the Metadata panel.
-       A pin in Malta means current Lightroom still ingests our packet.
+       A pin where the shoot happened means current Lightroom still ingests our packet.
 
   Check 2 — how does Lightroom SPELL a geotag now?   (~5 min)
     a. Import  $emit  with **Add**.

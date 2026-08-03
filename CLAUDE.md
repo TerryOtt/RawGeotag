@@ -234,9 +234,9 @@ earlier or made cheaper. The expensive pass and the gate are inherently the same
 pass.
 
 **What the barrier costs.** The lost overlap between reading and writing, which is
-bounded by whichever phase is shorter — so it is ~10% over SMB (Malta: 3.0 s of reads
-against ~0.3 s of writes) and up to ~20% locally (Rockies: ~0.3 s of reads against
-~1.2 s of writes). A fused single-pass design could recover part of that, and less
+bounded by whichever phase is shorter — so it is ~10% over SMB (3.0 s of reads
+against ~0.3 s of writes on a 1,024-file shoot) and up to ~20% locally (~0.3 s of
+reads against ~1.2 s of writes on the 3,883-file day). A fused single-pass design could recover part of that, and less
 than it sounds, since sidecar writes do not parallelize on NTFS anyway (see *Measured
 behavior* below). Not a good trade against the guarantee.
 
@@ -365,50 +365,68 @@ implementation. (No count here on purpose —
 it went stale three times; `cargo test` is the authoritative answer.) Toolchain on
 this machine: Rust 1.97.1 MSVC, with the VS Build Tools C++ workload installed.
 
-**Byte-level verification covers five shoots on two bodies** — four Canon EOS R5
+**Byte-level verification covers six shoots on two bodies** — five Canon EOS R5
 (CR3) and one Nikon D3300 (NEF) — written up below. That is a narrower claim than
 where the tool has been *used*: *Field patterns from real shoots* draws on several
-more (NZ, Cabo, St. Lucia), which informed the gap-limit advice but were not
+more, which informed the gap-limit advice but were not
 diffed against hand-computed positions. The NEF run is under *NEF, and why
-`read_strategy` exists*; the four CR3 shoots follow.
+`read_strategy` exists*; the five CR3 shoots follow.
 
-*Malta 2025-09-17* (`Q:\Lightroom\Images\2025\2025-09-17`, 1,024 files, with
-`2025-09-17 - Malta Car Tour.gpx`): 1,002 resolve and tag, ~3.0 s over SMB. The 22 skips
+**Shoots are described by what they exercise, not by where or when they were taken** —
+constraint 7. A reader needs the file count, the storage, the timezone case and the
+gap shape; the trip name adds nothing technical and this repository is public.
+
+*A 1,024-file CR3 shoot over SMB, EXIF offset `+00:00`*: 1,002 resolve and tag, ~3.0 s.
+The 22 skips
 are **three distinct holes, not one** — 10 across a segment break (460 s / 594 m), 9 in
 a 140 s / 8 m hole, 3 in a 775 s / 27 m hole. The 140 s / 8 m cluster is exactly what
 the two-limit rule exists for: 8 m clears the distance limit easily and only the time
 limit rejects it.
 
-*Canadian Rockies 2022-09-27* (3,883 files, 188 GB, local NVMe, with `2022-09-27- Peyto
-Lake, Bow Lake, Yoho.gpx`): 2,394 tag, 1,489 skip, 772 of those across `<trkseg>` breaks.
-This body's clock was on **`+01:00`**, so unlike the 2025 trips it actually exercises
+*A 3,883-file CR3 day, 188 GB, local NVMe*: 2,394 tag, 1,489 skip, 772 of those across
+`<trkseg>` breaks.
+This body's clock was on **`+01:00`**, so unlike the others it actually exercises
 the EXIF offset conversion instead of a no-op. Spot-checked against the raw GPX on an
 exact-hit photo: longitude and altitude identical to the track point.
 
-*Jackson WY 2025-11-24* (726 files, SMB, `-j 16`): **726 of 726 tagged, nothing
-skipped** — the cleanest run so far. The shoot (17:40–19:43 Z) sat wholly inside the
-track (17:11–21:57 Z) with no dropout large enough to trip the gap rule. Position
-matched the raw track point exactly.
+*A 726-file CR3 shoot over SMB, `-j 16`*: **726 of 726 tagged, nothing
+skipped** — the cleanest run so far. The shoot sat wholly inside a track that started
+half an hour before it and ran two hours past, with no dropout large enough to trip the
+gap rule. Position matched the raw track point exactly.
 
-*Malta/Sorrento multi-track, 2025-09* — the first real exercise of **multiple GPX
-files**. All seven tracks in `Q:\Photo GPX Tracks\2025\2025-09 - Malta, Sorrento` were
-passed to each of the four photo folders that exist (`09-17/18/19/21`), writing 1,967
-new sidecars: 95/95, 297/297, 1,575/1,689, and 09-17 already done. Passing every track to
+*A four-folder trip, seven tracks* — the first real exercise of **multiple GPX
+files**. All seven tracks were
+passed to each of the four photo folders, writing 1,967
+new sidecars: 95/95, 297/297, 1,575/1,689, and one folder already done. Passing every track to
 every folder is the safe idiom here — the tracks are disjoint in time, so each photo
 matches whichever one covers it and **nothing depends on pairing a filename to a folder
-name**. The 114 skips on 09-21 were 108 across a 2,122 s / 844 m segment break and 6 in
+name**. The 114 skips on the largest folder were 108 across a 2,122 s / 844 m segment
+break and 6 in
 a 100 s / 189 m hole. Six sidecars spot-checked against the raw GPX agreed to **under
 0.11 m**, all exact-timestamp hits (the logger samples at 1 Hz, so most photos land on
 a recorded point and are never interpolated at all).
 
-Across all five, interpolation agrees to within the coordinate encoding's resolution:
+*A 1,377-file NEF day whose logger sampled at 60 s* — the case where the **default
+`--max-gap` is exactly the sampling interval**, so one dropped sample rejects a photo.
+At the default, 748 tag and 629 fall in gaps of 114-193 s across 7-42 m; at
+`--max-gap 200`, 1,317 tag and 59 remain. Both passes hand-verified against the raw
+GPX: **0.150 m** on a 60 s bracket and **0.057 m** on a 114 s one, altitude agreeing to
+0.05 m. The wide-gap pass is the documented case for relaxing a limit — the *distance*
+evidence, 7-42 m, is what shows the subject was barely moving. It also exercised
+skip-existing at scale: 749 sidecars already present were left alone, one of them
+Lightroom's.
+
+Across all six, interpolation agrees to within the coordinate encoding's resolution:
 `xmp.rs` writes ten-thousandths of a minute, and 0.0001 minute of latitude is ~0.19 m,
 so that is the floor on any agreement these checks can demonstrate.
 
 ## Verifying a change — run every format, every time
 
-**`.\scripts\verify-fixtures.ps1`.** One command, all three fixtures (2 CR3 Malta,
-2 CR3 Rockies, 2 NEF Sedona), seconds, non-zero exit on any failure.
+**`.\scripts\verify-fixtures.ps1`.** One command, all three fixtures — `cr3-offset-utc`,
+`cr3-offset-nonzero`, `nef-no-offset`, two raws each — seconds, non-zero exit on any
+failure. **The names say what each one exercises**, which is both more useful than the
+shoot it came from and required by constraint 7; they were renamed from place names on
+2026-08-03.
 [`docs/FIXTURES.md`](docs/FIXTURES.md) owns the rest — what each fixture exercises,
 the expected aggregates, `-CheckSources`, and the rebuild recipe. **The expected
 hashes are deliberately not repeated here**, so a legitimate packet change has two
@@ -432,8 +450,8 @@ Rendering a block of cmdlets into cmd is not worth it and mostly is not possible
 **Never run just one.** CR3 goes through `Streaming` and NEF through `WholeFile` —
 different code in `raw.rs` — so one passing says nothing about the other, and the
 three differ by timezone case besides. A bug that dropped the EXIF offset entirely
-would pass Malta and Sedona and misplace a Rockies photo by **49.9 km**, still
-tagging, with no error or warning.
+would pass `cr3-offset-utc` and `nef-no-offset` and misplace a `cr3-offset-nonzero`
+photo by **49.9 km**, still tagging, with no error or warning.
 
 **This holds even when you are asked for one format.** "Run the NEF verification"
 means *verify* — run all three and say what was covered. The request is for
@@ -442,7 +460,7 @@ other two cost seconds. Narrowing scope here has been raised twice.
 
 **And do not name one fixture as though it were the check.** Terry accepts the CLI's
 tab-enter prompt suggestions, which are drawn from recent conversation — so writing
-"the Sedona NEF verification" produces exactly that suggestion, he accepts it, and
+"the NEF verification" produces exactly that suggestion, he accepts it, and
 the narrow framing re-enters the transcript. Call it **the full verification** or
 `verify-fixtures.ps1`; name a fixture only when the subject really is that fixture.
 
@@ -527,9 +545,9 @@ Lightroom got there first. Terry runs **Lightroom Classic 15.4.1**.
 
 The recurring question is whether our packet should look more like Lightroom's.
 **Answer: it already does where it counts, and the remaining differences are safe.**
-Compared against real LR sidecars on `Q:\` — `2019\2019-01-19\DSC_0001.xmp`
-(`Adobe XMP Core 5.6-c140`) and `2023\2023-05-06\DSC_0218.xmp` plus
-`2023\2023-09-10\3X8A0001.xmp` (`7.0-c000`, written by LR Classic 13.4):
+Compared against real LR sidecars on `Q:\` — one NEF sidecar written by
+`Adobe XMP Core 5.6-c140`, and one NEF and one CR3 written by `7.0-c000`
+(LR Classic 13.4):
 
 | | Lightroom | rawgeotag |
 |---|---|---|
@@ -541,7 +559,8 @@ Compared against real LR sidecars on `Q:\` — `2019\2019-01-19\DSC_0001.xmp`
 | `GPSMapDatum`, `GPSTimeStamp` | absent | present |
 | Serialization | attribute-form, one `rdf:Description` | identical |
 
-**Lightroom's GPS flavor has not moved since at least 2019.** Namespaces were added
+**Lightroom's GPS flavor has not moved across the three eras sampled**, the oldest of
+which is six years back. Namespaces were added
 across those eras (`exifEX`, `crd`, `xmpDM`) and `x:xmptk` changed, but how GPS is
 expressed did not. **Re-confirmed at 15.4.1** — 9 CR3 and 5 NEF geotagged in Lightroom
 from the same tracks rawgeotag used, then diffed: every row above still holds, down to
@@ -558,9 +577,10 @@ by an order of magnitude, but the NEF gap is bigger than our 0.19 m encoding flo
 explains, and the cause is worth recording so nobody hunts it as a bug:
 
 **Both cameras record `SubSecTimeOriginal`, Lightroom uses it, and we truncate to whole
-seconds.** LR writes `exif:DateTimeOriginal="2025-09-18T06:52:03.43Z"`; we interpolate
-at `:03`. The hypothesis predicts the data quantitatively — Malta's CR3s are `.43` on a
-near-stationary camera and differ by ~0.02 m, while Sedona's NEFs are `.50`/`.80`/`.60`
+seconds.** LR writes a sub-second `exif:DateTimeOriginal` such as `…T06:52:03.43Z`; we
+interpolate at `:03`. The hypothesis predicts the data quantitatively — the CR3s carry
+`.43` on a
+near-stationary camera and differ by ~0.02 m, while the NEFs carry `.50`/`.80`/`.60`
 on a walking photographer and differ by 0.33-0.53 m, implying 0.6-0.9 m/s. That is a
 person walking slowly, which is what those frames are.
 
@@ -603,8 +623,8 @@ recorded because they are the two a future session is most likely to re-invent:
 ## The CR3 timezone trap — do not regress this
 
 nom-exif returns CR3 `DateTimeOriginal` as **`Naive`** and exposes
-`OffsetTimeOriginal` as a **separate `Text` entry** (`"+00:00"` on the 2025 Malta
-files, `"+01:00"` on the 2022 Rockies ones — see *Whose clock is it* below before
+`OffsetTimeOriginal` as a **separate `Text` entry** (`"+00:00"` on most shoots,
+`"+01:00"` on a few — see *Whose clock is it* below before
 assuming what that variation means). It never merges them.
 It *does* merge them for JPEG. So `ExifDateTime::aware()` is always `None` on CR3,
 and any code that trusts `.aware()` alone will gate every single Canon raw as
@@ -626,7 +646,7 @@ BMFF container, which differs from the EXIF `DateTimeOriginal`. Compare against
 ### Whose clock is it — expect UTC, verify anyway
 
 **Terry sets every camera to UTC deliberately. A non-zero offset is a slip, not a
-decision.** The 2022 Rockies `+01:00` is London on BST — in his words, "sometimes I
+decision.** The `+01:00` shoots are London on BST — in his words, "sometimes I
 do shit like set it to London time with daylight savings on, which screws things up
 just enough to be annoying."
 
@@ -644,7 +664,7 @@ Terry runs UTC on everything down to his wristwatch, so on his cameras a non-zer
 offset is *always* a mistake and always worth surfacing. With a customer base of one
 there is nothing to configure. If a second user ever objects, the shape is a
 `--warn-non-utc` defaulting to on — **but do not build it speculatively**, and do not
-quietly narrow the behaviour to "only warn on a mix" because a single-body Rockies
+quietly narrow the behaviour to "only warn on a mix" because a single-body
 run prints a line every time. Printing that line every time is the feature. **For the code:** do not narrow
 anything to match this habit. Other photographers legitimately shoot on local time,
 so the rule in `choose_offset` — EXIF wins, `--utc-offset` fills in, neither refuses
@@ -685,12 +705,12 @@ Three consequences, all load-bearing:
    nothing. That is the gate working, not a bug. ExifTool does show a Nikon
    MakerNote `TimeZone` tag — it is a maker note, not the EXIF tag, and `format.rs`
    deliberately cannot pair against it.
-3. **This camera's clock was on UTC.** Sedona 2019-01-19: naive EXIF 20:52 with
-   `--utc-offset +0000` lands inside a track running 20:48:50-21:40:34 Z, and the
-   resulting coordinates are in Sedona at 1,323 m. Do not generalize it — read the
+3. **This body's clock was on UTC.** Naive EXIF 20:52 with `--utc-offset +0000` lands
+   inside a track running 20:48:50-21:40:34 Z, and the resulting coordinates are where
+   the photographer was, at the altitude they were. Do not generalize it — read the
    span and compare, exactly as with the R5 bodies.
 
-**Verified end to end** (Sedona 2019-01-19, 30 NEFs against that day's track): 30
+**Verified end to end** (30 NEFs against their day's track): 30
 of 30 tagged; the run refuses everything without `--utc-offset`; an interpolated
 position recomputed by hand from the raw GPX agreed to **under 5 cm** (31 s / 1.2 m
 bracketing gap); ExifTool `-validate` OK; byte-identical output at `-j 1, 2, 8, 16`.
@@ -739,8 +759,8 @@ refresh with `archive-inventory.ps1`, and why the count it prints is an **upper 
 rather than a forecast.
 
 That last point is the one to carry: the report does arithmetic on a directory listing,
-so a covering track and 2,256 untagged raws can still mean nothing to do. On
-2022-12-10 it did — every frame sat inside one 6.7-hour hole in the day's only track.
+so a covering track and 2,256 untagged raws can still mean nothing to do. One shoot
+proved it — every frame sat inside a single 6.7-hour hole in the day's only track.
 **Confirm a candidate with `--dry-run` before reporting that there is work available.**
 
 ### Staging for *speed* is a much narrower case than it looks
@@ -821,7 +841,7 @@ performance benefit that does not exist.
 > Station.** If Claude must do it unattended, go via `C:\`. Never assume a client-side
 > copy stays on the NAS.
 
-**Measured 2026-08-02 moving the 3,883-file Rockies day (187.5 GB) around, all of it
+**Measured 2026-08-02 moving a 3,883-file CR3 day (187.5 GB) around, all of it
 client-mediated with `robocopy /MT:16` — this table is entirely about Claude's routes:**
 
 | Route | Sustained | What it is |
@@ -861,13 +881,13 @@ real read ceiling off `N:\` — the wire, not the array.)*
 
 `N:\rawgeotag-bench\{j1,j2,j4,j8}` — **four disjoint sets of 200 Nikon D3300 NEFs,
 ~4.3 GB each, ~18 GB total.** Kept deliberately so NEF work never has to re-copy off
-the slow array. Copied from `Q:\Lightroom\Images\2021\2021-05-19` (4,813 files), name-
+the slow array. Copied from one 4,813-file NEF folder on `Q:\`, name-
 sorted, slices 0-199 / 200-399 / 400-599 / 600-799. The directory names record which
 job count each set was used for, so a repeat sweep can reuse the same pairing.
 
 **It is a read benchmark, not a tagging fixture** — the opposite job from the `C:\`
-fixture above, so do not reach for the wrong one. No GPX track exists for 2021-05-19
-— the earliest 2021 track is 08-06 — so every photo in it reports *outside track*,
+fixture above, so do not reach for the wrong one. **No GPX track covers that day**, so
+every photo in it reports *outside track*,
 which is correct and is not a bug to chase. That is fine for timing the read phase,
 which is the whole point.
 
@@ -918,10 +938,11 @@ these files in cache. 4.3 GB reads over SMB are evidently not retained despite 6
 of RAM. That control is what makes the sweep trustworthy; re-run it before believing
 a future sweep.
 
-### The standing CR3 day on `N:\` — `rawgeotag-stage\2022-09-27`
+### The standing CR3 day on `N:\` — `rawgeotag-stage\cr3-day`
 
-**`N:\rawgeotag-stage\2022-09-27\` — the full Rockies day, 3,883 CR3s (187.5 GB) plus
-`track.gpx`.** Staged 2026-08-02 and **kept deliberately**, as the CR3 counterpart to
+**`N:\rawgeotag-stage\cr3-day\` — a full shooting day, 3,883 CR3s (187.5 GB) under
+`photos\`, with its `track.gpx` alongside.** Staged 2026-08-02, renamed from its shoot
+date on 2026-08-03 under constraint 7, and **kept deliberately**, as the CR3 counterpart to
 `rawgeotag-bench` above: a cold-read measurement *consumes* its files, so every fresh
 data point costs another 188 GB, and this is what stops that meaning another trip
 across the archive's platters. Restaging a fresh copy to `C:\` is ~6-13 min and touches
@@ -961,7 +982,7 @@ storage the files sit on:
 | **SMB / network** | dominates the run | **16-20** | latency-bound; threads keep requests in flight |
 
 **The local row used to say `2` unconditionally, and that was a warm-only finding.**
-Measured 2026-08-02 on the Rockies day, two sets freshly staged from `N:\` so neither
+Measured 2026-08-02 on that CR3 day, two sets freshly staged from `N:\` so neither
 had ever been read: **`-j 20` took 5.8 s against `-j 2` at 48.6 s — 8.4x.** The `-j 20`
 set was deliberately the *cache-disadvantaged* one (staged first, so the second set's
 188 GB evicted it from RAM), which means the confound can only have worked against the
@@ -1122,13 +1143,16 @@ reach for saves a wasted pass:
 
 | Platform | Binding limit | Evidence |
 |---|---|---|
-| Ship under way | **distance** | NZ cruise 2025-03-14: 541 photos rejected on distance alone, **zero** on time. Typical hole `83 s / 599 m` — the vessel covers ~600 m between fixes seconds apart. |
-| Boat stationary or drifting | **time** | Cabo sunset cruise 2025-01-22: largest cluster `154 s / 74 m` — a 2½ minute hole in which the boat moved 74 m. |
-| Walking or driving on land | neither | Valletta, Jackson, St. Lucia all reached full or near-full coverage on the defaults. |
+| Ship under way | **distance** | A cruise sailing day: 541 photos rejected on distance alone, **zero** on time. Typical hole `83 s / 599 m` — the vessel covers ~600 m between fixes seconds apart. |
+| Boat stationary or drifting | **time** | A sunset cruise at anchor: largest cluster `154 s / 74 m` — a 2½ minute hole in which the boat moved 74 m. |
+| Walking on foot, logger at 60 s | **time** | A 1,377-file NEF day: 629 of 1,377 rejected in holes of `114-193 s` across only `7-42 m`. The sampling interval *is* the default limit, so one missed sample rejects the frame. |
+| Walking or driving on land, logger at 1 Hz | neither | Several city and road days reached full or near-full coverage on the defaults. |
 
-So at sea raise `--max-distance`, at anchor raise `--max-gap`, on land change nothing.
-`--max-distance 2000` took the NZ sailing pass from 74% to 88%; `--max-gap 200`
-recovered 174 Cabo frames. Both were hand-checked against the raw track and agreed to
+So at sea raise `--max-distance`, at anchor or on a slow logger raise `--max-gap`, on
+land at 1 Hz change nothing.
+`--max-distance 2000` took the sailing pass from 74% to 88%; `--max-gap 200`
+recovered 174 frames on the anchored day and 569 on the 60 s-logger day. All were
+hand-checked against the raw track and agreed to
 centimetres — but **be clear what that proves**. It proves the interpolation
 *arithmetic* is right. It cannot prove the vessel held course between two fixes,
 because there are no intermediate observations to check against. Only relax a limit
@@ -1147,10 +1171,12 @@ when the *other* limit shows the subject was barely moving, and say so when repo
   overlap check makes a single run impossible, by design. Run the *specific* tracks
   first, then the broad one **without `--force`**, so the more authoritative fix wins
   and the broad track only fills what is left.
-- **GPX filenames lie.** Seen in the wild: a file named `2025-09-21` holding 09-24
-  data, a `2015` typo for `2025`, and an en dash instead of a hyphen. Read the span,
-  never the name: `rawgeotag --verbose --dry-run <empty-dir> <gpx>` prints it and
-  exits before touching a photo.
+- **GPX filenames lie.** Seen in the wild: a file whose name gave a date three days
+  off its contents, a year typo a decade wrong, and an en dash instead of a hyphen.
+  Read the span, never the name: `rawgeotag --verbose --dry-run <empty-dir> <gpx>`
+  prints it and exits before touching a photo. **A track's `<metadata><time>` lies
+  too, differently** — on some loggers it is the *export* date, months after the
+  shoot, so a span must come from `<trkpt>` times alone.
 - A track can be 8-9 MB on a single line. `grep -oE` over that on an SMB share is
   unusably slow — copy it local first, or parse it as XML.
 

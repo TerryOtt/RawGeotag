@@ -145,11 +145,11 @@ for free.
 |---|---|---|
 | 2026-07-31 | first full verification | 3,883 CR3s at `-j 1/2/16`: identical console output, 1,489-line warning list, SHA-256 manifest over 2,394 sidecars |
 | 2026-07-31 | gate selection extracted into a function | also reproduced the *pre-extraction* output byte for byte — the stronger result |
-| 2026-08-02 | phase structure, both outcome enums and reporting order reshaped | `cr3-rockies` + `nef-sedona` at `-j 1/2/16`: identical aggregates *and* identical `--verbose` stdout+stderr |
+| 2026-08-02 | phase structure, both outcome enums and reporting order reshaped | `cr3-offset-nonzero` + `nef-no-offset` at `-j 1/2/16`: identical aggregates *and* identical `--verbose` stdout+stderr |
 | 2026-08-02 | end of day, after `skip_breakdown` and the `exif_offset` extraction | same two sets, and the report hashes came back **identical to the pre-refactor run that morning** — a day of restructuring moved no output byte |
-| 2026-08-02 | reporting reshaped: `print_ignored`, and column widths moved out of the `describe_*` helpers | `cr3-rockies` + `nef-sedona` at `-j 1/2/16`: identical at every job count, aggregates unchanged. The Rockies *report* hash moved and Sedona's did not, which is the fix landing exactly where expected — Sedona runs all-UTC and prints no `Timezone` line to reformat |
-| 2026-08-02 | GPX arguments may be directories (`collect_tracks`) | `cr3-rockies` + `nef-sedona` at `-j 1/2/16`, tracks resolved from a *directory* argument: identical aggregates and reports. The aggregates match the single-named-file runs too, since a photo outside a track is skipped and extra tracks change nothing |
-| 2026-08-02 | fixtures trimmed to two files per set | `cr3-rockies` + `nef-sedona` at `-j 1/2/16` identical; the aggregates moved, as a smaller set must, but no code changed and the sets' distinguishing properties are untouched |
+| 2026-08-02 | reporting reshaped: `print_ignored`, and column widths moved out of the `describe_*` helpers | `cr3-offset-nonzero` + `nef-no-offset` at `-j 1/2/16`: identical at every job count, aggregates unchanged. The `cr3-offset-nonzero` *report* hash moved and `nef-no-offset`'s did not, which is the fix landing exactly where expected — `nef-no-offset` runs all-UTC and prints no `Timezone` line to reformat |
+| 2026-08-02 | GPX arguments may be directories (`collect_tracks`) | `cr3-offset-nonzero` + `nef-no-offset` at `-j 1/2/16`, tracks resolved from a *directory* argument: identical aggregates and reports. The aggregates match the single-named-file runs too, since a photo outside a track is skipped and extra tracks change nothing |
+| 2026-08-02 | fixtures trimmed to two files per set | `cr3-offset-nonzero` + `nef-no-offset` at `-j 1/2/16` identical; the aggregates moved, as a smaller set must, but no code changed and the sets' distinguishing properties are untouched |
 | 2026-08-02 | walk-error reporting hoisted ahead of the early returns | all three fixtures at `-j 1/2/16`: identical aggregates, matching the recorded values, and identical `--verbose` output |
 
 That middle run is why the "diff against previous artifacts" rule exists. Extracting

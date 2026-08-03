@@ -69,9 +69,9 @@ $counts.Values |
 
 Write-Host "walking $TrackRoot ..."
 $tracks = foreach ($path in [System.IO.Directory]::EnumerateFiles($TrackRoot, '*.gpx', $walk)) {
-    # Only <trkpt> times count. A <metadata><time> is the export date -- on the
-    # Rockies tracks it sits months after the shoot, and taking it as the span's
-    # end made every one of them look like it covered the whole autumn.
+    # Only <trkpt> times count. A <metadata><time> is the export date -- on some
+    # tracks it sits months after the shoot, and taking it as the span's end made
+    # every one of them look like it covered the whole autumn.
     $times = foreach ($chunk in ([System.IO.File]::ReadAllText($path) -split '<trkpt' | Select-Object -Skip 1)) {
         if ($chunk -match '<time>([^<]+)</time>') {
             [datetime]::Parse($matches[1], [cultureinfo]::InvariantCulture,

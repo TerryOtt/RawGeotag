@@ -67,7 +67,7 @@ matters if someone reaches for `--force`.
 
 `archive-inventory.ps1` takes each track's span from the `<time>` inside its track
 points and ignores every other one in the file. Pocket Earth writes a
-`<metadata><time>` holding the *export* date: on the Canadian Rockies tracks it sits
-five months after the shoot, and taking it as the end of the span made every one of
+`<metadata><time>` holding the *export* date: on one trip's tracks it sits five months
+after the shoot, and taking it as the end of the span made every one of
 them appear to cover the whole autumn — which in turn made unrelated shoots look
 covered. Any future span extraction has the same trap waiting.

@@ -103,7 +103,7 @@ rawgeotag ./shoot ./daytime.gpx ./evening.gpx
 **Or just point at the folder holding the trip's tracks:**
 
 ```
-rawgeotag ./shoot "./GPX/2025-09 - Malta, Sorrento"
+rawgeotag ./shoot "./GPX/2025-09 - Italy trip"
 ```
 
 That is the better habit, and not only for the typing. Matching a track to a folder
@@ -358,11 +358,16 @@ Verified against real shoots and their GPX tracks, on two camera bodies:
   the rest in 5-to-60-minute dropouts). This body had its clock on `+01:00`, which
   exercises the EXIF timezone path that a `+00:00` camera leaves as a no-op; spot
   checks match the raw GPX exactly.
-- **NEFs** (Nikon D3300, Sedona 2019) — 30 of 30 tagged against the day's track.
+- **30 NEFs** (Nikon D3300) — 30 of 30 tagged against the day's track.
   This body writes no EXIF timezone, so it also confirms the refusal path: without
   `--utc-offset` the run aborts having written nothing. An interpolated position
   recomputed by hand from the raw GPX agreed to **under 5 cm**, and the altitude
-  (1,323 m) is right for Sedona.
+  matched the terrain the photographer was standing on.
+- **1,377 NEFs against a 60-second logger** — the case where the default `--max-gap`
+  equals the sampling interval, so a single missed sample rejects a frame: 748 tagged
+  at the default and 1,317 at `--max-gap 200`, with 59 still refused. Hand-checked at
+  both limits, agreeing to **0.150 m** and **0.057 m**. It also exercises
+  skip-existing at scale — 749 sidecars already present were left untouched.
 
 Output is deterministic: the same input at `--jobs 1`, `2` and `16` produces
 byte-identical sidecars and an identical warning list. ExifTool is used throughout

@@ -127,28 +127,28 @@ $src  = "..\RawGeotag-fixtures"
 $root = "N:\lr-xmp-compare"
 $rg   = ".\target\release\rawgeotag.exe"
 
-foreach ($p in @("$root\cr3-malta","$root\nef-sedona",
-                 "$root\rawgeotag-reference\cr3-malta","$root\rawgeotag-reference\nef-sedona")) {
+foreach ($p in @("$root\cr3-offset-utc","$root\nef-no-offset",
+                 "$root\rawgeotag-reference\cr3-offset-utc","$root\rawgeotag-reference\nef-no-offset")) {
     New-Item -ItemType Directory -Force -Path $p | Out-Null
 }
 
 # Everything in each set. The fixture is two photos per set now, so there is nothing
 # to select between -- an earlier version of this script indexed @(0,1,2,3,4,14,23,
-# 31,39) into a forty-file Malta set to spread the sample, since consecutive frames
+# 31,39) into a forty-file set to spread the sample, since consecutive frames
 # are often one stationary position. If you want a wider positional spread than two
 # frames gives, pull extra photos straight from Q:\ rather than growing the fixture.
-Get-ChildItem -LiteralPath "$src\cr3-malta"  -Filter *.CR3 -Force | Copy-Item -Destination "$root\cr3-malta"
-Get-ChildItem -LiteralPath "$src\nef-sedona" -Filter *.NEF -Force | Copy-Item -Destination "$root\nef-sedona"
+Get-ChildItem -LiteralPath "$src\cr3-offset-utc"  -Filter *.CR3 -Force | Copy-Item -Destination "$root\cr3-offset-utc"
+Get-ChildItem -LiteralPath "$src\nef-no-offset" -Filter *.NEF -Force | Copy-Item -Destination "$root\nef-no-offset"
 
-Copy-Item "$src\gpx\malta-2025-09-18.gpx"  "$root\cr3-malta"
-Copy-Item "$src\gpx\sedona-2019-01-19.gpx" "$root\nef-sedona"
+Copy-Item "$src\gpx\cr3-offset-utc.gpx"  "$root\cr3-offset-utc"
+Copy-Item "$src\gpx\nef-no-offset.gpx" "$root\nef-no-offset"
 
 # Our reference sidecars, then moved out of the import folders. (No extension
 # argument: it was removed 2026-08-02, and these lines carried a stale `cr3` /
 # `nef` between DIR and the track until a review caught them failing.)
-& $rg --no-progress "$root\cr3-malta" "$root\cr3-malta\malta-2025-09-18.gpx"
-& $rg --no-progress --utc-offset +0000 "$root\nef-sedona" "$root\nef-sedona\sedona-2019-01-19.gpx"
-foreach ($s in @("cr3-malta","nef-sedona")) {
+& $rg --no-progress "$root\cr3-offset-utc" "$root\cr3-offset-utc\cr3-offset-utc.gpx"
+& $rg --no-progress --utc-offset +0000 "$root\nef-no-offset" "$root\nef-no-offset\nef-no-offset.gpx"
+foreach ($s in @("cr3-offset-utc","nef-no-offset")) {
     Get-ChildItem -LiteralPath "$root\$s" -Filter *.xmp -Force |
         Move-Item -Destination "$root\rawgeotag-reference\$s" -Force
 }
@@ -179,15 +179,16 @@ offset you supply, so a CR3 with `OffsetTimeOriginal="+00:00"` still needs one.
 **The offset is not a fixed number — it changes per photo set.** Measured on a machine
 in **US Eastern**, where both cameras' clocks were on UTC:
 
-| Set | Photo date | Zone then | Offset that worked |
+| Set | Photo taken | Zone then | Offset that worked |
 |---|---|---|---|
-| `cr3-malta` | 2025-09-18 | EDT, `UTC-4` | **+0400** |
-| `nef-sedona` | 2019-01-19 | EST, `UTC-5` | **+0500** |
+| `cr3-offset-utc` | a September day | EDT, `UTC-4` | **+0400** |
+| `nef-no-offset` | a January day | EST, `UTC-5` | **+0500** |
 
 **It follows daylight saving as of the photo's date, not the date you run the
 comparison.** Both sets were tagged in a single Lightroom session in August, seconds
 apart — so the PC's own offset was identical for both. If that were the varying term,
-both would have wanted `+0400`. Sedona wanted `+0500`, and January is EST. One session,
+both would have wanted `+0400`. The January set wanted `+0500`, and January is EST.
+One session,
 one PC offset, two answers: the term that moved is the photo's date. So the rule is
 **add back whatever the machine's local zone was on the day the photo was taken.**
 
@@ -199,20 +200,22 @@ to cancel that conversion. Under that model both measured values fall out exactl
 `0` would only be right on a machine whose local zone is UTC.
 
 Two consequences for a future run. **Re-tagging the same two sets in winter does not
-change these numbers** — they key off 2025-09-18 and 2019-01-19, which do not move. But
+change these numbers** — they key off the capture dates, which do not move. But
 **a different machine timezone, or a photo set from another date, changes them
 entirely**, so derive rather than copy. This is inferred from two data points; the
 positional check below is what actually confirms it.
 
-**The reliable check is positional, not arithmetic:** a photo landing outside Malta or
-Sedona means the offset is wrong. Don't save that — fix the offset and re-tag.
+**The reliable check is positional, not arithmetic:** a photo landing somewhere the
+photographer was not means the offset is wrong. Don't save that — fix the offset and
+re-tag. Each set's track is small enough to eyeball: **2,247 and 2,290 points, each
+covering under an hour**, so a correct fix lands inside a short walk and a wrong one
+is obvious on the map rather than subtle.
 
-Track spans, both UTC:
-
-| Track | Points | From | To |
-|---|---|---|---|
-| `malta-2025-09-18.gpx` | 2,247 | 2025-09-18T06:50:02Z | 2025-09-18T07:39:52Z |
-| `sedona-2019-01-19.gpx` | 2,290 | 2019-01-19T20:48:50Z | 2019-01-19T21:40:34Z |
+The exact spans are in `inventory/fixture-sources.md`, which is gitignored — they are
+dates and places from a private library, and constraint 7 in
+[`../CLAUDE.md`](../CLAUDE.md) keeps them out of a public repository. Nothing in the
+procedure needs them; `rawgeotag --verbose --dry-run <empty-dir> <gpx>` prints the
+span of whatever track you have.
 
 ## The questions to ask
 
@@ -240,10 +243,11 @@ exact and 0.245 m at worst. The NEF gap is sub-second capture times — both cam
 record `SubSecTimeOriginal`, Lightroom honors it, we truncate to whole seconds. See
 `CLAUDE.md` for why that is not worth adopting.
 
-**Earlier eras, for the stability argument:** `Adobe XMP Core 5.6-c140` (2019, on `Q:\`
-at `2019\2019-01-19\DSC_0001.xmp`) and `7.0-c000` / LR Classic 13.4
-(`2023\2023-05-06\DSC_0218.xmp`, which has altitude). GPS encoding identical across all
-three eras.
+**Earlier eras, for the stability argument:** `Adobe XMP Core 5.6-c140` and
+`7.0-c000` / LR Classic 13.4 (the latter carrying altitude), both read off Lightroom
+sidecars on `Q:\` — six years apart. GPS encoding identical across all three eras.
+`exiftool -XMPToolkit` on any sidecar in the archive finds more of them; the specific
+files are not named here under constraint 7.
 
 ## Automating this with a Lightroom plugin — considered and declined 2026-08-02
 

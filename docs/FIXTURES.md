@@ -61,37 +61,44 @@ below.** The short version is that you cannot have it, and do not need it.
 
 ## The three fixtures
 
+**Each is named for the timezone case it covers, not the shoot it came from** — more
+useful at the call site, and required by constraint 7 in [`../CLAUDE.md`](../CLAUDE.md),
+since this repository is public and the shoots are from a private library. Renamed
+from place names on 2026-08-03.
+
 | Directory | Files | Size | Exercises |
 |---|---|---|---|
-| `cr3-malta/` | 2 CR3, `_DOO0001`–`_DOO0002` | 87 MB | `Streaming`; EXIF offset `+00:00` — present, but a no-op |
-| `cr3-rockies/` | 2 CR3, `_50A0001`–`_50A0002` | 88 MB | `Streaming`; EXIF offset **`+01:00` — real conversion** |
-| `nef-sedona/` | 2 NEF, `DSC_0220`–`DSC_0221` | 43 MB | `WholeFile`; **no** EXIF offset, so `--utc-offset` is mandatory |
-| `gpx/` | 3 tracks | 1.5 MB | the tracks covering those three shoots |
+| `cr3-offset-utc/` | 2 CR3, `_DOO0001`–`_DOO0002` | 87 MB | `Streaming`; EXIF offset `+00:00` — present, but a no-op |
+| `cr3-offset-nonzero/` | 2 CR3, `_50A0001`–`_50A0002` | 88 MB | `Streaming`; EXIF offset **`+01:00` — real conversion** |
+| `nef-no-offset/` | 2 NEF, `DSC_0220`–`DSC_0221` | 43 MB | `WholeFile`; **no** EXIF offset, so `--utc-offset` is mandatory |
+| `gpx/` | 3 tracks | 1.5 MB | the tracks covering those three shoots, one per set and named to match |
 
 **Verify every format, every time.** `RawFormat::read_strategy` sends CR3 through
 `Streaming` and NEF through `WholeFile` — different code in `raw.rs` — so one format
 passing says nothing about the other.
 
 **Why three and not two.** The timezone cases differ, and that matters more than the
-file count. A bug that dropped the EXIF offset entirely would pass Malta (`+00:00`
-is a no-op) *and* Sedona (no offset to drop), while corrupting every Rockies photo.
+file count. A bug that dropped the EXIF offset entirely would pass `cr3-offset-utc`
+(`+00:00` is a no-op) *and* `nef-no-offset` (no offset to drop), while corrupting
+every `cr3-offset-nonzero` photo.
 
 Measured, not hypothetical: `_50A0001.CR3` reads `15:02:05` with `+01:00`, i.e.
-`14:02:05Z`, and tags at `51.352357, -116.088200`, matching the raw GPX. Read as
-naive UTC it tags at `51.717543, -116.507579` — **49.9 km away** — and it *still
-tags*, because `15:02:05Z` also falls inside the track. No error, no warning, no
-skip. That is the project mantra's exact failure mode, and `cr3-rockies` is the only
-fixture that catches it.
+`14:02:05Z`, and tags at a position matching the raw GPX. Read as naive UTC it tags
+**49.9 km away** — and it *still tags*, because `15:02:05Z` also falls inside the
+track. No error, no warning, no skip. That is the project mantra's exact failure
+mode, and `cr3-offset-nonzero` is the only fixture that catches it. *(The two
+positions are deliberately not printed here; the aggregate hashes below are what
+pins them, and they are a real place someone stood.)*
 
 ## Expected results
 
 | Fixture | Tagged | Aggregate |
 |---|---|---|
-| `cr3-malta` | 2 / 2 | `CF2D1DA68FA359AA` |
-| `cr3-rockies` | 2 / 2 | `047EF9B17BE64472` |
-| `nef-sedona` | 2 / 2 | `F858DA7AA022AF2B` |
+| `cr3-offset-utc` | 2 / 2 | `CF2D1DA68FA359AA` |
+| `cr3-offset-nonzero` | 2 / 2 | `047EF9B17BE64472` |
+| `nef-no-offset` | 2 / 2 | `F858DA7AA022AF2B` |
 
-`nef-sedona` must additionally **refuse both and write nothing** when
+`nef-no-offset` must additionally **refuse both and write nothing** when
 `--utc-offset` is omitted — the D3300 records no EXIF timezone, so this set
 exercises the gate for free.
 
@@ -194,16 +201,15 @@ code, and would fail for everyone else.
 
 Sources are on `Q:\`, which is read-only — copy out, never write back.
 
-| Fixture | Source |
-|---|---|
-| `cr3-malta` | `Q:\Lightroom\Images\2025\2025-09-18`, first 2 CR3 by name |
-| `cr3-rockies` | `Q:\Lightroom\Images\2022\2022-09-27`, first 2 CR3 by name |
-| `nef-sedona` | `Q:\Lightroom\Images\2019\2019-01-19`, `DSC_0220`–`DSC_0221` |
-| `gpx/malta-2025-09-18.gpx` | `Q:\Photo GPX Tracks\2025\2025-09 - Malta, Sorrento\2025-09-18 - Valletta City Walk.gpx` |
-| `gpx/rockies-2022-09-27.gpx` | `Q:\Photo GPX Tracks\2022\2022-09 - Canada - BC, AB - Canadian Rockies\2022-09-27- Peyto Lake, Bow Lake, Yoho.gpx` |
-| `gpx/sedona-2019-01-19.gpx` | `Q:\Photo GPX Tracks\2019\[2019-01-19 15h38m14s]Sedona - Sat afternoon.gpx` |
+**Which folder each set came from is recorded in `inventory/fixture-sources.md`, which
+is gitignored and therefore only on the author's machine.** That table names real
+dates and places in a private photo library, and this repository is public —
+constraint 7 in [`../CLAUDE.md`](../CLAUDE.md). Nothing else needs it: the *identity*
+of a fixture is its manifest in `scripts/fixture-manifests/`, not its provenance, and
+a reader without the raws is served by *Bring your own raws* above rather than by a
+path they cannot open.
 
-That last one's brackets need `-LiteralPath` in PowerShell.
+Some source paths contain square brackets, which need `-LiteralPath` in PowerShell.
 
 **"First 40 by name" is how each set was originally chosen, not what defines it now.**
 That selection returns the same 40 files only *by luck*: add one file to that folder

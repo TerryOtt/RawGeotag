@@ -282,7 +282,7 @@ Interpolation details:
 > that. Segment breaks are structural: the logger stopped, so nothing at all is
 > known about the path between.
 >
-> Measured on the 2025-09-17 Malta shoot (1,024 CR3s): 1,002 tagged, 22 skipped —
+> Measured on a 1,024-CR3 shoot: 1,002 tagged, 22 skipped —
 > 10 across a segment break (460 s / 594 m), 9 in a 140 s / 8 m hole, 3 in a
 > 775 s / 27 m hole.
 
