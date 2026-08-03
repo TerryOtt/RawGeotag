@@ -1142,16 +1142,21 @@ Build Tools are current — one quiet line when they are, a banner when they are
 could not be reached. It never blocks: a stale toolchain is worth knowing about, not
 worth refusing to compile over.
 
-**It prints to Terry's screen and not into your context.** Tested end to end on
-2026-08-02: he saw both the clean line and the banner, the model received neither, and
-knew the hook had run at all only because it leaves a marker in `%TEMP%`. Two things
-follow. **Never report a verdict you did not see** — and **your not seeing one is
-evidence of nothing**, neither that the chain is current nor that the hook failed. If
-Terry quotes it, the question is answered; do not re-run `rustup check` to confirm it.
+**It reports on two channels, because one of them does not go where it looks like it
+goes.** `systemMessage` reaches Terry's screen and *never* the model;
+`hookSpecificOutput.additionalContext` puts the same verdict beside the tool result,
+where a session can actually act on it. Both render from one set of lines, so they
+cannot disagree.
 
-*(This section was first written as "relay whatever it prints", on the assumption that
-a hook's `systemMessage` reaches the model. It does not, and that assumption is the
-part worth remembering — it is an easy one to make twice.)*
+That was found the hard way on 2026-08-02: the first version had only `systemMessage`
+plus an instruction to "relay whatever it prints", which the model never received and
+therefore could not do. **The assumption that a hook's output reaches Claude because it
+reaches the user is the part worth remembering** — everything else here followed from
+it.
+
+So a session does see the verdict. **A stale one is worth raising before doing more
+work**; a current one closes the question, so do not re-run `rustup check` to confirm
+it.
 
 Like the NAS guard it is user-global and deliberately not in this repo, so a fresh
 clone has no check at all and [`docs/UPDATING.md`](docs/UPDATING.md) stays the process
