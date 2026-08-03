@@ -135,6 +135,15 @@ written down.
    Untracking them the same day left them in the published history. **The moment to
    ask was before the push, and there is no later moment that substitutes for it.**
 
+   **The existing history stays, and that is settled — do not propose rewriting it.**
+   Asked and answered the same day: *"I'm fine with some `Q:\` data in history.
+   There's nothing truly sensitive there, just wanted to block potential PII data
+   leaking from here forward."* So every commit before `fc94f40` still carries trip
+   names, shoot dates and archive paths, deliberately. **This rule is a forward-facing
+   PII control, not a cleanup project** — reading it as an outstanding mess to fix
+   gets both the scope and his decision wrong, and a force-push to `main` is refused
+   by a ruleset that binds him too.
+
    Note the asymmetry with constraint 5, which *permits* creating a sidecar on `Q:\`
    unasked. Writing a file to the archive is the tool's purpose and is reversible by
    him. Publishing what is in the archive is neither.
