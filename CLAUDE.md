@@ -1133,3 +1133,18 @@ update` is not evidence of being current.** Only crates.io can tell you.
 
 `1.x` deps are mostly self-correcting (`anyhow = "1"` keeps picking up 1.0.x), so the
 risk concentrates in the `0.x` crates: `gpx`, `chrono`, `time`, `indicatif`.
+
+### A hook answers the toolchain half of this, once per session
+
+On the first `cargo build|test|clippy|run|bench` under this checkout,
+`~/.claude/hooks/rust-toolchain-check.py` reports whether stable Rust and the MSVC
+Build Tools are current — one quiet line when they are, a banner when they are not or
+could not be reached. It never blocks: a stale toolchain is worth knowing about, not
+worth refusing to compile over. If it says *current*, that question is answered — do
+not re-run `rustup check` to confirm it.
+
+**Relay whatever it prints, at the top of your reply.** It fires once and never
+repeats, so a result nobody passes on is a result nobody reads — which is precisely
+what happened on 2026-08-02, in the session that wrote it. Like the NAS guard it is
+user-global and deliberately not in this repo, so a fresh clone has no check at all
+and [`docs/UPDATING.md`](docs/UPDATING.md) stays the process either way.

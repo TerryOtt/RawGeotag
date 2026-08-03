@@ -137,6 +137,11 @@ reports. Comparing one against the other reads as a mismatch on a machine that i
 perfectly current. The `18` in the URL is the VS major version, and is the one thing
 here that has to be edited by hand rather than asked for.
 
+**On the maintainer's machine a hook runs both of these once per session**, on the
+first `cargo build`, and reports which side is behind. It lives in Claude Code's
+config rather than in this repo, so it is a convenience on one machine and not part
+of the process: the two commands above remain the answer on any other clone.
+
 ## Step 3 — verify, and mean it
 
 ```
