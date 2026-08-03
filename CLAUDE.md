@@ -1140,11 +1140,19 @@ On the first `cargo build|test|clippy|run|bench` under this checkout,
 `~/.claude/hooks/rust-toolchain-check.py` reports whether stable Rust and the MSVC
 Build Tools are current — one quiet line when they are, a banner when they are not or
 could not be reached. It never blocks: a stale toolchain is worth knowing about, not
-worth refusing to compile over. If it says *current*, that question is answered — do
-not re-run `rustup check` to confirm it.
+worth refusing to compile over.
 
-**Relay whatever it prints, at the top of your reply.** It fires once and never
-repeats, so a result nobody passes on is a result nobody reads — which is precisely
-what happened on 2026-08-02, in the session that wrote it. Like the NAS guard it is
-user-global and deliberately not in this repo, so a fresh clone has no check at all
-and [`docs/UPDATING.md`](docs/UPDATING.md) stays the process either way.
+**It prints to Terry's screen and not into your context.** Tested end to end on
+2026-08-02: he saw both the clean line and the banner, the model received neither, and
+knew the hook had run at all only because it leaves a marker in `%TEMP%`. Two things
+follow. **Never report a verdict you did not see** — and **your not seeing one is
+evidence of nothing**, neither that the chain is current nor that the hook failed. If
+Terry quotes it, the question is answered; do not re-run `rustup check` to confirm it.
+
+*(This section was first written as "relay whatever it prints", on the assumption that
+a hook's `systemMessage` reaches the model. It does not, and that assumption is the
+part worth remembering — it is an easy one to make twice.)*
+
+Like the NAS guard it is user-global and deliberately not in this repo, so a fresh
+clone has no check at all and [`docs/UPDATING.md`](docs/UPDATING.md) stays the process
+either way.
