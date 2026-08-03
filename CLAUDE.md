@@ -159,7 +159,9 @@ data that merely looks like one. Two consequences you will actually hit:
   string, so a commit message describing a deletion on these drives is itself
   refused — which is how this very entry got blocked on its first commit. Put the
   message in a file and use `git commit -F <file>`; the `Write` tool is not matched
-  by the hook.
+  by the hook. **Sharper since 2026-08-02**, when quote characters joined the verb
+  boundary class: a verb quoted inside a heredoc or a JSON payload now counts too,
+  where `"rm` used to slip straight past. Same remedy, more occasions to need it.
 
 Do not "improve" either of these by pairing verbs to arguments or by stripping
 heredoc bodies before matching. Shell quoting, pipelines and splatting make the
@@ -171,6 +173,12 @@ To confirm it is still live, probe with a path that does not exist, so the comma
 is a no-op even if the hook is inert: `rm -f "/q/__probe__"` must be refused, and so
 must `Remove-Item "Q:\__probe__"`. Both spellings matter — testing only one is how
 the inconsistency went unnoticed in the first place.
+
+**A third spelling earns its place for the same reason**, since the lesson repeated
+itself: `echo '{"command":"rm -f /q/__probe__"}'` must be refused too. Note that in
+the first two the quotes sit around the *path*, so the verb still had a space in
+front of it and always matched; here the verb itself is quoted. That form ran
+unrefused as recently as 2026-08-02 and is the one a regression reopens first.
 
 ## Execution shape: two phases with a gate between them
 
