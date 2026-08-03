@@ -2,6 +2,11 @@
 /target
 **/*.rs.bk
 
+# Archive manifests: a listing of a private photo library, in a public repo.
+# Generated on demand by scripts/archive-inventory.ps1 and never committed --
+# see docs/INVENTORY.md. Do not "helpfully" add them back.
+/inventory/
+
 # Cargo.lock is intentionally NOT ignored.
 # This crate is a binary, and Rust convention is to commit the lockfile for
 # binaries so builds are reproducible. (The "ignore Cargo.lock" advice applies

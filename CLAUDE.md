@@ -697,8 +697,11 @@ the answer is never to overwrite it.
 ### "What is left to geotag?" — read the manifest, do not walk the archive
 
 A recurring question, and the naive answer is a recursive `Get-ChildItem` over 11 TB
-of SMB share that costs minutes every time it is asked. Two committed manifests under
-`inventory/` hold the answer instead:
+of SMB share that costs minutes every time it is asked. Two manifests under
+`inventory/` hold the answer instead — **gitignored, because this repository is public
+and they list every shoot in a private photo library.** They were committed once on
+2026-08-03 and taken back out the same day; caching them on disk is right, publishing
+them is not. Generate them with `scripts/archive-inventory.ps1`, then ask:
 
 ```
 pwsh -NoProfile -File .\scripts\archive-untagged.ps1

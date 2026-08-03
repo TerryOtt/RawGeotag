@@ -12,21 +12,28 @@ Sub-second, reads no share. It prints every directory holding CR3 or NEF files w
 fewer `.xmp` sidecars than raws, split into those a GPX track covers and those it
 does not, with the covering track's real UTC span under each.
 
-It reads two committed manifests. When they are stale — a new shoot imported, a new
-track added — refresh them:
+It reads two manifests under `inventory\`. Build them once, and again whenever they go
+stale — a new shoot imported, a new track added:
 
 ```
 pwsh -NoProfile -File .\scripts\archive-inventory.ps1
 ```
 
 That one *does* walk the NAS and takes minutes, which is the entire reason its output
-is committed rather than recomputed. It is read-only: nothing is created, modified or
-removed on `Q:\`.
+is cached on disk rather than recomputed per question. It is read-only: nothing is
+created, modified or removed on `Q:\`.
 
 | File | One row per |
 |---|---|
 | `inventory\photo-dirs.csv` | directory under `Q:\Lightroom\Images` holding a raw file — CR3, NEF, DNG and XMP counts |
 | `inventory\gpx-tracks.csv` | GPX file under `Q:\Photo GPX Tracks` — its true UTC span and point count |
+
+**Both are gitignored, and that is not incidental.** They are a directory-level listing
+of a private photo library — every shoot, its date and how many frames it holds — and
+this repository is public. They were committed once, on 2026-08-03, and removed the
+same day; the caching argument above is a good reason to keep them on disk and no
+reason at all to publish them. A fresh clone therefore starts with no manifests and
+must run `archive-inventory.ps1` first, which is the correct trade.
 
 ## What the report does and does not tell you
 
